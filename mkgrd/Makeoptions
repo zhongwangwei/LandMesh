@@ -52,6 +52,14 @@
            -ffpe-trap=invalid,zero,overflow -fbounds-check \
            -mcmodel=medium -fbacktrace -fdump-core -cpp \
            -ffree-line-length-0
+  ######################################################################
+
+  ######################################################################
+  #INTEL
+  FOPTS = -r8 -free -O2 -check uninit -check bounds -check pointers -mcmodel=medium \
+        -traceback  -assume byterecl -pthread   #-heap-arrays -nogen-interface
+
+
 
   INCLUDE_DIR = -I$(NETCDF_INC)
   LDFLAGS = -L$(NETCDF_LIB) -lnetcdff -lnetcdf -llapack
