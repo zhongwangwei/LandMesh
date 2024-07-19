@@ -434,7 +434,7 @@ subroutine spring_dynamics1( mrows, moveint, ngr, nxp, nma, nua, nwa, &
 
 use mem_delaunay, only: itab_md_vars, itab_ud_vars, itab_wd_vars
 use consts_coms,  only: pi2, erad, r8, piu180
-use consts_coms,    only: io6
+use consts_coms,  only: io6, openmp
 
 implicit none
 
@@ -499,7 +499,7 @@ disto61 = dist00 / .61
 
 write(io6,'(a,4i9)') "In spring dynamics: ngr,nma,niter = ",1,nma,niter
 
-!$omp parallel private(iter)
+!$omp parallel NUM_THREADS(openmp) private(iter)
 !$omp do
 do iu = 2, nua
 iumn(iu,1) = itab_ud(iu)%im(1)
@@ -771,7 +771,8 @@ subroutine mdloopf(init,im,j1,j2,j3,j4,j5,j6)
 subroutine tri_neighbors(nma, nua, nwa, itab_md, itab_ud, itab_wd)
 
    use mem_delaunay, only: itab_md_vars, itab_ud_vars, itab_wd_vars
- 
+
+   use consts_coms,  only: openmp
    implicit none
  
    integer, intent(in) :: nma, nua, nwa
@@ -789,7 +790,7 @@ subroutine tri_neighbors(nma, nua, nwa, itab_md, itab_ud, itab_wd)
  
    ! Loop over W points
  
-   !$omp parallel
+   !$omp parallel NUM_THREADS(openmp)
    !$omp do private(iu1,iu2,iu3)
    do iw = 2,nwa
       itab_wd(iw)%npoly = 0

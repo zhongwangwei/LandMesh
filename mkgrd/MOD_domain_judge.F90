@@ -1,6 +1,8 @@
+! 判断细化区域是否与计算包含关系区域有交界
+! 若没有，则中断并提示
 module MOD_domain_judge
 
-   use netcdf
+   !use netcdf
    USE consts_coms
    USE refine_vars
 
@@ -35,6 +37,7 @@ module MOD_domain_judge
       allocate(IsInDmArea(nlons_source,nlats_source))
       IsInRfArea = .false.
       IsInDmArea = .false.
+      ! 计算并记录位于细化区域/计算包含关系区域内的经纬度网格
       CALL IsInRefineArea(IsInRfArea,lon_i,lat_i,dx,dy)
       CALL IsInDomainArea(IsInDmArea,lon_i,lat_i,dx,dy)
 
@@ -42,14 +45,14 @@ module MOD_domain_judge
 
       do i = 1,nlons_source,1
          do j = 1,nlats_source,1
-            if((IsInRfArea(i,j) == .true.).and.(IsInDmArea(i,j) == .true.))then
+            if((IsInRfArea(i,j) .eqv. .true.).and.(IsInDmArea(i,j) .eqv. .true.))then
                intersection = .true.
                exit
             end if
          end do
       end do
 
-      if(intersection == .false.)then
+      if(intersection .eqv. .false.)then
          print*,"ERROR!!! There is no intersection between the refinement area and the inclusion relation calculation area!!!"
          stop
       else
@@ -105,16 +108,15 @@ module MOD_domain_judge
    END SUBROUTINE IsInRefineArea
 
 
+   ! 判断经纬度网格是否位于计算包含关系区域
    SUBROUTINE IsInDomainArea(IsInDmArea,lon_i,lat_i,dx,dy)
 
       implicit none
 
       integer :: i,j,n
       real(r8),intent(in) :: dx,dy
-      !integer,intent(in) :: nlons,nlats
       real(r8),dimension(nlons_source),intent(in) :: lon_i
       real(r8),dimension(nlats_source),intent(in) :: lat_i
-      !real(r8),intent(in) :: edge_e,edge_w,edges,edgen
       real(r8),dimension(nlons_source) :: lone,lonw
       real(r8),dimension(nlats_source) :: latn,lats
       logical,dimension(nlons_source,nlats_source),intent(out) :: IsInDmArea

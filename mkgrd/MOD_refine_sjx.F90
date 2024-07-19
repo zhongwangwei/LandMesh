@@ -1,5 +1,6 @@
-! 1. Triangular mesh multiple refinement
-! 2. Calculate the refined inclusion relationship
+! 1.三角形网格多重细化
+! 2.计算细化后的包含关系
+
 module MOD_refine_sjx
 
    use netcdf
@@ -13,33 +14,35 @@ module MOD_refine_sjx
    
    implicit none
    
-   integer :: num_ref                     ! The number of triangular meshes to be refined
-   integer :: num_all                     ! The unstructured grid contains the total number of structured grids
-   integer :: num_refjw                   ! The number of latitude and longitude grids to be refined
-   integer :: refed(1000)                 ! Record the number of triangles that have been refined at each refinement
-   integer :: nmp(-1:100),nwp(-1:100)     ! Record the number of m and w points after each refinement 
+   integer :: num_ref                     ! 需要细化的三角形网格数
+   integer :: num_all                     ! 非结构网格包含结构网格总数
+   integer :: num_refjw                   ! 需要细化的经纬度网格数
+   integer :: refed(1000)                 ! 记录每次细化时已经细化的三角形数
+   integer :: nmp(-1:100),nwp(-1:100)     ! 记录每次细化后的m，w点数量 
    integer :: iter                        ! 迭代次数 
-   integer :: icl(3)                      ! Record the number of m and w points after each refinement
-   !integer :: maxlc                       ! Land type maximum number, 17 or 24
+   integer :: icl(3)                      ! 判断三角形网格是否穿过180°经线
+   !integer :: maxlc                       ! 土地类型最大编号，17 or 24
 
    integer :: i,j,k,L,m,n
    integer :: w1,w2,w3,m1,m2,m3,m4,row,col
-   integer :: sum_sea,sum_land            ! Number of land and sea grids
+   integer :: sum_sea,sum_land            ! 陆地和海洋网格数量
 
    integer :: sjx_points,lbx_points
    integer :: maxid(1)
    
+   ! nc文件相关变量
    integer :: ncid,varid(10)
    integer :: spDimID,iunit,lpDimID,twDimID,thDimID,nmDimID,fvDimID
    integer :: idDimID,infoDimID,seDimID,foDimID,sxDimID,dimID_sjx,dimID_lbx
 
-   real(r8),allocatable :: lat_i(:),lon_i(:)          ! Center point of latitude and longitude grid
-   real(r8),allocatable :: wp(:,:),mp(:,:)            ! Store longitude, latitude, area, threshold refinement (before refinement) 
-   real(r8),allocatable :: mp_new(:,:),wp_new(:,:)    ! Store longitude, latitude, area, threshold refinement (after refinement) 
-   real(r8),allocatable :: mp_i(:,:,:)                ! Record the number of unstructured grids including latitude and longitude, including proportion, including area (in the process of refinement)
-   real(r8),allocatable :: mp_ii(:,:)                 ! Record the number of unstructured grids including latitude and longitude, including proportion, including area (in the process of refinement)
-   real(r8),allocatable :: mp_ii_new(:,:)             ! Record the number of unstructured grids including latitude and longitude, including proportion, including area (after refinement)
+   real(r8),allocatable :: lat_i(:),lon_i(:)          ! 经纬度网格中心点
+   real(r8),allocatable :: wp(:,:),mp(:,:)            ! 存放经度、纬度、面积、阈值细化情况(细化前) 
+   real(r8),allocatable :: mp_new(:,:),wp_new(:,:)    ! 存放经度、纬度、面积、阈值细化情况(细化后) 
+   real(r8),allocatable :: mp_i(:,:,:)                ! 记录非结构网格包含经纬度网格的序号，包含比例，包含面积(细化过程中)
+   real(r8),allocatable :: mp_ii(:,:)                 ! 记录非结构网格包含经纬度网格的序号，包含比例，包含面积(读取的输入数据)
+   real(r8),allocatable :: mp_ii_new(:,:)             ! 记录非结构网格包含经纬度网格的序号，包含比例，包含面积(细化后)
 
+   ! 阈值数组
    real(r8),allocatable :: slope_max(:,:),slope_avg(:,:),p_slope(:,:)
    real(r8),allocatable :: area(:),area_fine_gridcell(:,:)
    real(r8),allocatable :: fraction_mainarea(:,:)
@@ -51,43 +54,44 @@ module MOD_refine_sjx
    real(r8),allocatable :: tksatu(:,:,:),p_tksatu(:,:,:)
 
    real(r8) :: sjx(3,2),newsjx(3,2)
-   real(r8) :: isinply           ! Inclusion relationship between unstructured grid and latitude and longitude grid (proportion)
+   real(r8) :: isinply           ! 非结构网格与经纬度网格的包含关系(比例)
    real(r8) :: dx,dy
    real(r8) :: tmpa(2),tmpb(2),tmpc(2)
    
-   integer,allocatable :: n_landtypes(:)        ! The number of land types contained within the triangular grid
-   real(r8),allocatable :: landtypes(:,:)        ! Latitude and longitude grid land types
-   integer,allocatable :: ref(:)                ! Record whether the triangular mesh needs to be refined
-   integer,allocatable :: ref_jw(:,:)           ! Records whether the latitude and longitude grid needs to calculate inclusion relationships
-   integer,allocatable :: ref_tr(:,:)           ! Record what thresholds the triangular mesh is refined with
-   integer,allocatable :: ngrmw(:,:)            ! Index of w points adjacent to m points (before thinning)
-   integer,allocatable :: ngrmw_new(:,:)        ! Index of w points adjacent to m points (after refinement)
-   integer,allocatable :: mp_id(:,:)            ! Contains the number of blocks, starting id in mp_ii (before thinning)
-   integer,allocatable :: mp_id_new(:,:)        ! Contains the number of blocks, starting id in mp_ii (after refinement)
-   integer,allocatable :: nla(:)                ! Whether the unstructured grid contains an indication of the land type 
-   integer,allocatable :: seaorland(:,:)        ! Determine whether the latitude and longitude grid is ocean or land
-   integer,allocatable :: ngrwm_new(:,:)        ! Index of m points adjacent to w points (not calculated)
+   integer,allocatable :: n_landtypes(:)        ! 三角形网格内包含的土地类型数量
+   real(r8),allocatable :: landtypes(:,:)        ! 经纬度网格土地类型
+   integer,allocatable :: ref(:)                ! 记录三角形网格是否需要细化
+   integer,allocatable :: ref_jw(:,:)           ! 记录经纬度网格是否需要计算包含关系
+   integer,allocatable :: ref_tr(:,:)           ! 记录三角形网格用何种阈值细化
+   integer,allocatable :: ngrmw(:,:)            ! m点相邻的w点索引(细化前)
+   integer,allocatable :: ngrmw_new(:,:)        ! m点相邻的w点索引(细化后)
+   integer,allocatable :: mp_id(:,:)            ! 包含分块数量，在mp_ii中起始id(细化前)
+   integer,allocatable :: mp_id_new(:,:)        ! 包含分块数量，在mp_ii中起始id(细化后)
+   integer,allocatable :: nla(:)                ! 非结构网格是否包含该种土地类型的标志 
+   integer,allocatable :: seaorland(:,:)        ! 判断经纬度网格是海洋或者陆地
+   integer,allocatable :: ngrwm_new(:,:)        ! w点相邻的m点索引(未计算)
 
    character(LEN=256) :: lndname,it,dir_output,nxpc
    
-   logical :: isover       ! Determine whether the refinement is complete
-   logical :: ispart       ! Determine whether the latitude and longitude mesh is fully contained by the unstructured mesh
-   logical,allocatable :: IsInRfArea(:)         ! Determine whether the triangular mesh is in the refinement area
+   logical :: isover       ! 判断细化是否结束
+   logical :: ispart       ! 判断经纬度网格是否被非结构网格完全包含
+   logical,allocatable :: IsInRfArea(:)         ! 判断三角形网格是否位于细化区域内
    
-   character(LEN=20):: p_name(6)=(/"GLONW","GLATW","GLONM","GLATM","itab_w%im","itab_m%iw"/)
-
+   !character(LEN=20):: p_name(6)=(/"GLONW","GLATW","GLONM","GLATM","itab_w%im","itab_m%iw"/)
+   character(LEN = 20),dimension(6) :: p_name
    isover = .false.
+   p_name = [character(len=20) :: "GLONW", "GLATW", "GLONM", "GLATM", "itab_w%im", "itab_m%iw"]
 
    dir_output = trim(base_dir) // trim(EXPNME)
 
 !--------------------------------------------------------------------------
-! 1.Read the data and allocate the array memory
+! 1.读取数据，分配数组内存
 !--------------------------------------------------------------------------
-   print*,"Start reading unstructured grid data......"
+   print*,"开始读取非结构网格数据......"
    print*,""
 
 
-   write(nxpc, '(I3.3)') NXP
+   write(nxpc, '(I4.4)') NXP
    lndname = trim(base_dir) // trim(EXPNME) // '/makegrid/gridfile/gridfile_NXP' // trim(nxpc) // '.nc4'
    print*,lndname
 
@@ -110,10 +114,10 @@ module MOD_refine_sjx
    nwp(-1) = 0
    nwp(0) = lbx_points
    nmp(0) = sjx_points
-   allocate(wp(lbx_points,2))    
+   allocate(wp(lbx_points,2))    ! 储存经纬度(-180~180,90~-90)
    allocate(wp_new(lbx_points*5,2))
-   allocate(mp(sjx_points,4))          ! Three dimensions respectively store longitude, latitude, area, threshold refinement
-   allocate(mp_id(sjx_points,2))       ! Contains the number of blocks, starting id in mp_ii
+   allocate(mp(sjx_points,4))          ! 三维分别存放经度、纬度、面积、阈值细化情况
+   allocate(mp_id(sjx_points,2))       ! 包含分块数量，在mp_ii中起始id
    allocate(mp_new(sjx_points*5,4))
    allocate(mp_id_new(sjx_points*5,2))
    allocate(mp_i(sjx_points*5,25000,4))
@@ -149,8 +153,8 @@ module MOD_refine_sjx
    end do
 
    allocate(landtypes(nlons_source,nlats_source))
-   allocate(slope_max(nlons_source,nlats_source))          ! The maximum slope value in the eight neighborhood of the latitude and longitude grid
-   allocate(slope_avg(nlons_source,nlats_source))          ! The mean slope value in the eight neighborhood of the latitude and longitude grid
+   allocate(slope_max(nlons_source,nlats_source))          ! 经纬度网格八邻域上坡度最大值
+   allocate(slope_avg(nlons_source,nlats_source))          ! 经纬度网格八邻域上坡度均值
    landtypes = 0.
    slope_max = 0.
    slope_avg = 0.
@@ -223,6 +227,7 @@ module MOD_refine_sjx
          end if
       end do
    end do
+   print*,"海洋网格个数为",sum_sea,"，陆地网格个数为",sum_land
 
    lndname = trim(source_dir) // 'slope_max.nc'
    print*,lndname
@@ -316,16 +321,16 @@ module MOD_refine_sjx
    print*,"tksatu_l1",minval(tksatu(:,:,1)),maxval(tksatu(:,:,1))
    print*,"tksatu_l2",minval(tksatu(:,:,2)),maxval(tksatu(:,:,2))
 
-   print*,"Start calculating the area of the latitude and longitude grid......"
+   print*,"开始计算经纬度网格面积......"
    allocate(area_fine_gridcell(nlons_source,nlats_source))
    call cellarea(area_fine_gridcell)
-   print*,"The latitude and longitude grid area is calculated"
+   print*,"经纬度网格面积计算完成"
 
-   allocate(nla(0:maxlc))                           ! Whether the unstructured grid contains an indication of the land type
-   allocate(area(0:maxlc))                         ! Area of each land type in unstructured grid
-   allocate(fraction_mainarea(sjx_points,2))    ! Number and proportion of main land types in unstructured grid
-   allocate(p_slope(sjx_points,3))            ! Maximum slope of latitude and longitude grid in unstructured grid
-   allocate(p_lai(sjx_points,3))                ! Mean value, maximum value and number of lai in unstructured grids
+   allocate(nla(0:maxlc))                           ! 非结构网格是否包含该种土地类型的标志
+   allocate(area(0:maxlc))                         ! 非结构网格内各土地类型面积
+   allocate(fraction_mainarea(sjx_points,2))    ! 非结构网格内主要土地类型编号与比例
+   allocate(p_slope(sjx_points,3))            ! 非结构网格内经纬度网格坡度最大值
+   allocate(p_lai(sjx_points,3))                ! 非结构网格内lai均值、最大值、网格数
    allocate(p_k_s(sjx_points,3,2))
    allocate(p_k_sl(sjx_points,3,2))
    allocate(p_tkdry(sjx_points,3,2))
@@ -347,7 +352,7 @@ module MOD_refine_sjx
    ref_tr = 0
 
 !--------------------------------------------------------------------------
-! 2.The threshold file for the uniterated grid is preliminarily calculated
+! 2.初步计算未迭代网格的阈值文件
 !--------------------------------------------------------------------------
 
    print*,"开始计算阈值文件"
@@ -508,13 +513,13 @@ module MOD_refine_sjx
    end do
 !$OMP END PARALLEL DO
 
-   print*,"The threshold file is calculated"
+   print*,"阈值文件计算完成"
 
 !--------------------------------------------------------------------------
-! 3.Stores threshold files and grid information for uniterated grids
+! 3.存储未迭代网格的阈值文件与网格信息
 !--------------------------------------------------------------------------
 
-   print*,"Stores the unrefined grid threshold file"
+   print*,"存储未细化网格阈值文件"
    iter = 0
    write(it,'(i2.2)')iter
    lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/threshold/threshold_NXP" // trim(nxpc) // "_" // trim(adjustl(it)) // ".nc4"
@@ -599,14 +604,14 @@ module MOD_refine_sjx
    ref = 0
 
 !--------------------------------------------------------------------------
-! 4.The initial iteration grid is selected according to the threshold options
+! 4.根据阈值选项进行初步迭代网格的选择
 !--------------------------------------------------------------------------
    allocate(IsInRfArea(sjx_points))
    IsInRfArea = .false.
    CALL IsInRefineArea(IsInRfArea,sjx_points,lbx_points,ngrmw_new,wp_new,sjx_points)
 
    do i = 1,sjx_points,1
-      if(IsInRfArea(i) == .false.)then
+      if(IsInRfArea(i) .eqv. .false.)then
          cycle
       end if
 
@@ -614,84 +619,84 @@ module MOD_refine_sjx
          cycle
       end if
 
-         if (refine_num_landtypes == .True. .and. n_landtypes(i)>th_num_landtypes) then
+         if (refine_num_landtypes .eqv. .true. .and. n_landtypes(i)>th_num_landtypes) then
 
             ref(i) = 1
             ref_tr(i,1) = 1
          end if
 
-         if (refine_area_mainland == .True. .and. fraction_mainarea(i, 2) < th_area_mainland) then
+         if (refine_area_mainland .eqv. .true. .and. fraction_mainarea(i, 2) < th_area_mainland) then
             ref(i) = 1
             ref_tr(i,2) = 1
          end if
-         if (refine_lai_m == .True. .and. (p_lai(i, 1) > th_lai_m)) then
+         if (refine_lai_m .eqv. .true. .and. (p_lai(i, 1) > th_lai_m)) then
             ref(i) = 1
             ref_tr(i,3) = 1
          end if
 
-         if (refine_lai_s == .True. .and. (p_lai(i, 2) > th_lai_s)) then
+         if (refine_lai_s .eqv. .true. .and. (p_lai(i, 2) > th_lai_s)) then
             ref(i) = 1
             ref_tr(i,4) = 1
          end if
          
-         if (refine_slope_m == .True. .and. (p_slope(i, 1) > th_slope_m)) then
+         if (refine_slope_m .eqv. .true. .and. (p_slope(i, 1) > th_slope_m)) then
 
             ref(i) = 1
             ref_tr(i,5) = 1
          end if
 
-         if (refine_slope_s == .True. .and. (p_slope(i, 2) > th_slope_s)) then
+         if (refine_slope_s .eqv. .true. .and. (p_slope(i, 2) > th_slope_s)) then
 
             ref(i) = 1
             ref_tr(i,6) = 1
          end if
 
-         if (refine_k_s_m == .True. .and. ((p_k_s(i, 1, 1) > th_k_s_m).or.(p_k_s(i, 1, 2) > th_k_s_m))) then
+         if (refine_k_s_m .eqv. .true. .and. ((p_k_s(i, 1, 1) > th_k_s_m).or.(p_k_s(i, 1, 2) > th_k_s_m))) then
             ref(i) = 1
             ref_tr(i,7) = 1
          end if
 
-         if (refine_k_s_s == .True. .and. ((p_k_s(i, 2, 1) > th_k_s_s).or.(p_k_s(i, 2, 2) > th_k_s_s))) then
+         if (refine_k_s_s .eqv. .true. .and. ((p_k_s(i, 2, 1) > th_k_s_s).or.(p_k_s(i, 2, 2) > th_k_s_s))) then
             ref(i) = 1
             ref_tr(i,8) = 1
          end if
 
-         if (refine_k_solids_m == .True. .and. ((p_k_sl(i, 1, 1) > th_k_solids_m).or.(p_k_sl(i, 1, 2) > th_k_solids_m))) then
+         if (refine_k_solids_m .eqv. .true. .and. ((p_k_sl(i, 1, 1) > th_k_solids_m).or.(p_k_sl(i, 1, 2) > th_k_solids_m))) then
             ref(i) = 1
             ref_tr(i,9) = 1
          end if
          
-         if (refine_k_solids_s == .True. .and. ((p_k_sl(i, 2, 1) > th_k_solids_s).or.(p_k_sl(i, 2, 2) > th_k_solids_s))) then
+         if (refine_k_solids_s .eqv. .true. .and. ((p_k_sl(i, 2, 1) > th_k_solids_s).or.(p_k_sl(i, 2, 2) > th_k_solids_s))) then
             ref(i) = 1
             ref_tr(i,10) = 1
          end if
 
-         if (refine_tkdry_m == .True. .and. ((p_tkdry(i, 1, 1) > th_tkdry_m).or.(p_tkdry(i, 1, 2) > th_tkdry_m))) then
+         if (refine_tkdry_m .eqv. .true. .and. ((p_tkdry(i, 1, 1) > th_tkdry_m).or.(p_tkdry(i, 1, 2) > th_tkdry_m))) then
             ref(i) = 1
             ref_tr(i,11) = 1
          end if
 
-         if (refine_tkdry_s == .True. .and. ((p_tkdry(i, 2, 1) > th_tkdry_s).or.(p_tkdry(i, 2, 2) > th_tkdry_s))) then
+         if (refine_tkdry_s .eqv. .true. .and. ((p_tkdry(i, 2, 1) > th_tkdry_s).or.(p_tkdry(i, 2, 2) > th_tkdry_s))) then
             ref(i) = 1
             ref_tr(i,12) = 1
          end if
 
-         if (refine_tksatf_m == .True. .and. ((p_tksatf(i, 1, 1) > th_tksatf_m).or.(p_tksatf(i, 1, 2) > th_tksatf_m))) then
+         if (refine_tksatf_m .eqv. .true. .and. ((p_tksatf(i, 1, 1) > th_tksatf_m).or.(p_tksatf(i, 1, 2) > th_tksatf_m))) then
             ref(i) = 1
             ref_tr(i,13) = 1
          end if
 
-         if (refine_tksatf_s == .True. .and. ((p_tksatf(i, 2, 1) > th_tksatf_s).or.(p_tksatf(i, 2, 2) > th_tksatf_s))) then
+         if (refine_tksatf_s .eqv. .true. .and. ((p_tksatf(i, 2, 1) > th_tksatf_s).or.(p_tksatf(i, 2, 2) > th_tksatf_s))) then
             ref(i) = 1
             ref_tr(i,14) = 1
          end if
          
-         if (refine_tksatu_m == .True. .and. ((p_tksatu(i, 1, 1) > th_tksatu_m).or.(p_tksatu(i, 1, 2) > th_tksatu_m))) then
+         if (refine_tksatu_m .eqv. .true. .and. ((p_tksatu(i, 1, 1) > th_tksatu_m).or.(p_tksatu(i, 1, 2) > th_tksatu_m))) then
             ref(i) = 1
             ref_tr(i,15) = 1
          end if
 
-         if (refine_tksatu_s == .True. .and. ((p_tksatu(i, 2, 1) > th_tksatu_s).or.(p_tksatu(i, 2, 2) > th_tksatu_s))) then
+         if (refine_tksatu_s .eqv. .true. .and. ((p_tksatu(i, 2, 1) > th_tksatu_s).or.(p_tksatu(i, 2, 2) > th_tksatu_s))) then
 
             ref(i) = 1
             ref_tr(i,16) = 1
@@ -708,26 +713,28 @@ module MOD_refine_sjx
    refed = 0
 
 !--------------------------------------------------------------------------
-! 5.Start iteration, iteration process is:
-!  5.1 Determine whether the iteration continues according to flag
-!  5.2. Refinement
-!  5.3. Record the refined grid file
-!  5.4. Calculate the mesh inclusion relationship after refinement
-!  5.5 Calculate and record the refined threshold file
-!  5.6. Calculate the number of meshes to be refined according to the threshold
-!  5.7. Set the flag according to the number of grids
+! 5.开始迭代，迭代过程为：
+!   一.根据flag判断迭代是否继续
+!   二.进行细化
+!   三.记录细化后网格文件
+!   四.计算细化后网格包含关系
+!   五.计算并记录细化后阈值文件
+!   六.根据阈值计算需细化的网格数
+!   七.根据网格数设置flag
 !--------------------------------------------------------------------------
 
 !------------------------------------
-! 5.1 Determine whether the iteration continues according to the flag
+! 5.1 根据flag判断迭代是否继续
 !------------------------------------
-   do while(isover == .false.)
+   do while(isover .eqv. .false.)
       iter = iter + 1
+      print*,"开始第",iter,"次迭代"
+      print*,"需要细化的三角形数目为",num_ref
       nmp(iter) = nmp(iter-1) + num_ref * 4
       nwp(iter) = nwp(iter-1) + num_ref * 3
 
 !------------------------------------
-! 5.2 refine
+! 5.2 进行细化
 !------------------------------------
       do i = nmp(iter-2)+1,nmp(iter-1),1
          if(ref(i) == 1)then
@@ -810,10 +817,11 @@ module MOD_refine_sjx
          end if
       end do
 
-      print*,"The number of refined triangles is",refed(iter)
+      print*,"第",iter,"次细化完成"
+      print*,"细化三角形数目为",refed(iter)
 
 !------------------------------------
-! 5.3 Record refinement after grid file
+! 5.3 记录细化后网格文件
 !------------------------------------
       write(it,'(i2.2)')iter
       lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/tmp/gridfile_NXP" // trim(nxpc) // "_" // trim(adjustl(it)) // ".nc4"
@@ -853,14 +861,15 @@ module MOD_refine_sjx
       end do
 
       num_refjw = INT(sum(ref_jw))
-      print*,"The number of latitude and longitude grids to be adjusted is",num_refjw
+      print*,"需要调整的经纬度网格数目为",num_refjw
 
 !------------------------------------
-! 5.4 The mesh inclusion relationship is calculated after refinement
+! 5.4 计算细化后网格包含关系
 !------------------------------------
 
       mp_i = 0.
 
+      print*,"开始计算第",iter,"次细化后的包含关系"
 !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1)&
 !$OMP PRIVATE(i,j,k,ispart,sjx,isinply)
       do i = 1,nlons_source,1
@@ -870,7 +879,7 @@ module MOD_refine_sjx
             end if
             ispart = .false.
             do k = nmp(iter-1)+1,nmp(iter),1
-               if(ispart == .true.)then
+               if(ispart .eqv. .true.)then
                   exit
                end if
                sjx = 0.
@@ -902,6 +911,7 @@ module MOD_refine_sjx
          end do
       end do
 !$OMP END PARALLEL DO
+      print*,"第",iter,"次细化后包含关系计算完成"
 
       print*,sum(mp_id_new(nmp(iter-1) + 1:nmp(iter),1))
       do i = nmp(iter-1) + 1,nmp(iter),1
@@ -917,7 +927,7 @@ module MOD_refine_sjx
       end do
 
 !------------------------------------
-! 5.5 Calculate and record the refined threshold file
+! 5.5 计算并记录细化后阈值文件
 !------------------------------------
 
       deallocate(fraction_mainarea)
@@ -930,7 +940,7 @@ module MOD_refine_sjx
       deallocate(p_tksatf)
       deallocate(p_tksatu)
 
-      allocate(fraction_mainarea(nmp(iter),2))   ! Number and proportion of main land types in unstructured grid
+      allocate(fraction_mainarea(nmp(iter),2))   ! 非结构网格内主要土地类型编号与比例
       allocate(n_landtypes(nmp(iter)))
       allocate(p_slope(nmp(iter),3))
       allocate(p_lai(nmp(iter),3))
@@ -949,6 +959,7 @@ module MOD_refine_sjx
       p_tksatf = 0.
       p_tksatu = 0.
       
+      print*,"开始计算第",iter,"次细化后的阈值文件"
 !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1) &
 !$OMP PRIVATE(i,j,row,col,nla,L,area,maxid)
       do i = 1,sjx_points,1
@@ -1258,7 +1269,9 @@ module MOD_refine_sjx
 
       end do
 !$OMP END PARALLEL DO
+      print*,"第",iter,"次细化后阈值文件计算完成"
 
+      print*,"存储第",iter,"次细化后的阈值文件"
       write(it,'(i2.2)')iter
       lndname =  trim(base_dir) // trim(EXPNME) // "/makegrid/threshold/threshold_NXP" // trim(nxpc) // "_" // trim(adjustl(it)) // ".nc4"
       print*,lndname
@@ -1318,7 +1331,7 @@ module MOD_refine_sjx
 
 
 !------------------------------------
-! 5.6 Calculate the number of meshes to be refined based on the threshold
+! 5.6 根据阈值计算需细化的网格数
 !------------------------------------
       ref = 0
       IsInRfArea = .false.
@@ -1329,85 +1342,85 @@ module MOD_refine_sjx
             cycle
          end if
 
-if (refine_num_landtypes == .True. .and. n_landtypes(i)>th_num_landtypes) then
+if (refine_num_landtypes .eqv. .true. .and. n_landtypes(i)>th_num_landtypes) then
 
    ref(i) = 1
    ref_tr(i,1) = 1
 end if
 
-if (refine_area_mainland == .True. .and. fraction_mainarea(i, 2) < th_area_mainland) then
+if (refine_area_mainland .eqv. .true. .and. fraction_mainarea(i, 2) < th_area_mainland) then
    ref(i) = 1
    ref_tr(i,2) = 1
 end if
 
-if (refine_lai_m == .True. .and. (p_lai(i, 1) > th_lai_m)) then
+if (refine_lai_m .eqv. .true. .and. (p_lai(i, 1) > th_lai_m)) then
    ref(i) = 1
    ref_tr(i,3) = 1
 end if
 
-if (refine_lai_s == .True. .and. (p_lai(i, 2) > th_lai_s)) then
+if (refine_lai_s .eqv. .true. .and. (p_lai(i, 2) > th_lai_s)) then
    ref(i) = 1
    ref_tr(i,4) = 1
 end if
 
-if (refine_slope_m == .True. .and. (p_slope(i, 1) > th_slope_m)) then
+if (refine_slope_m .eqv. .true. .and. (p_slope(i, 1) > th_slope_m)) then
 
    ref(i) = 1
    ref_tr(i,5) = 1
 end if
 
-if (refine_slope_s == .True. .and. (p_slope(i, 2) > th_slope_s)) then
+if (refine_slope_s .eqv. .true. .and. (p_slope(i, 2) > th_slope_s)) then
 
    ref(i) = 1
    ref_tr(i,6) = 1
 end if
 
-if (refine_k_s_m == .True. .and. ((p_k_s(i, 1, 1) > th_k_s_m).or.(p_k_s(i, 1, 2) > th_k_s_m))) then
+if (refine_k_s_m .eqv. .true. .and. ((p_k_s(i, 1, 1) > th_k_s_m).or.(p_k_s(i, 1, 2) > th_k_s_m))) then
    ref(i) = 1
    ref_tr(i,7) = 1
 end if
 
-if (refine_k_s_s == .True. .and. ((p_k_s(i, 2, 1) > th_k_s_s).or.(p_k_s(i, 2, 2) > th_k_s_s))) then
+if (refine_k_s_s .eqv. .true. .and. ((p_k_s(i, 2, 1) > th_k_s_s).or.(p_k_s(i, 2, 2) > th_k_s_s))) then
    ref(i) = 1
    ref_tr(i,8) = 1
 end if
 
-if (refine_k_solids_m == .True. .and. ((p_k_sl(i, 1, 1) > th_k_solids_m).or.(p_k_sl(i, 1, 2) > th_k_solids_m))) then
+if (refine_k_solids_m .eqv. .true. .and. ((p_k_sl(i, 1, 1) > th_k_solids_m).or.(p_k_sl(i, 1, 2) > th_k_solids_m))) then
    ref(i) = 1
    ref_tr(i,9) = 1
 end if
 
-if (refine_k_solids_s == .True. .and. ((p_k_sl(i, 2, 1) > th_k_solids_s).or.(p_k_sl(i, 2, 2) > th_k_solids_s))) then
+if (refine_k_solids_s .eqv. .true. .and. ((p_k_sl(i, 2, 1) > th_k_solids_s).or.(p_k_sl(i, 2, 2) > th_k_solids_s))) then
    ref(i) = 1
    ref_tr(i,10) = 1
 end if
 
-if (refine_tkdry_m == .True. .and. ((p_tkdry(i, 1, 1) > th_tkdry_m).or.(p_tkdry(i, 1, 2) > th_tkdry_m))) then
+if (refine_tkdry_m .eqv. .true. .and. ((p_tkdry(i, 1, 1) > th_tkdry_m).or.(p_tkdry(i, 1, 2) > th_tkdry_m))) then
    ref(i) = 1
    ref_tr(i,11) = 1
 end if
 
-if (refine_tkdry_s == .True. .and. ((p_tkdry(i, 2, 1) > th_tkdry_s).or.(p_tkdry(i, 2, 2) > th_tkdry_s))) then
+if (refine_tkdry_s .eqv. .true. .and. ((p_tkdry(i, 2, 1) > th_tkdry_s).or.(p_tkdry(i, 2, 2) > th_tkdry_s))) then
    ref(i) = 1
    ref_tr(i,12) = 1
 end if
 
-if (refine_tksatf_m == .True. .and. ((p_tksatf(i, 1, 1) > th_tksatf_m).or.(p_tksatf(i, 1, 2) > th_tksatf_m))) then
+if (refine_tksatf_m .eqv. .true. .and. ((p_tksatf(i, 1, 1) > th_tksatf_m).or.(p_tksatf(i, 1, 2) > th_tksatf_m))) then
    ref(i) = 1
    ref_tr(i,13) = 1
 end if
 
-if (refine_tksatf_s == .True. .and. ((p_tksatf(i, 2, 1) > th_tksatf_s).or.(p_tksatf(i, 2, 2) > th_tksatf_s))) then
+if (refine_tksatf_s .eqv. .true. .and. ((p_tksatf(i, 2, 1) > th_tksatf_s).or.(p_tksatf(i, 2, 2) > th_tksatf_s))) then
    ref(i) = 1
    ref_tr(i,14) = 1
 end if
 
-if (refine_tksatu_m == .True. .and. ((p_tksatu(i, 1, 1) > th_tksatu_m).or.(p_tksatu(i, 1, 2) > th_tksatu_m))) then
+if (refine_tksatu_m .eqv. .true. .and. ((p_tksatu(i, 1, 1) > th_tksatu_m).or.(p_tksatu(i, 1, 2) > th_tksatu_m))) then
    ref(i) = 1
    ref_tr(i,15) = 1
 end if
 
-if (refine_tksatu_s == .True. .and. ((p_tksatu(i, 2, 1) > th_tksatu_s).or.(p_tksatu(i, 2, 2) > th_tksatu_s))) then
+if (refine_tksatu_s .eqv. .true. .and. ((p_tksatu(i, 2, 1) > th_tksatu_s).or.(p_tksatu(i, 2, 2) > th_tksatu_s))) then
 
    ref(i) = 1
    ref_tr(i,16) = 1
@@ -1418,27 +1431,29 @@ end if
       num_ref = INT(sum(ref))
 
 !------------------------------------
-! 5.7 Set flag based on the number of grids
+! 5.7 根据网格数设置flag
 !------------------------------------
 
       if(num_ref == 0)then
          isover = .true.
-         print*,"There are no more grids to refine"
+         print*,"已经没有需要细化的网格"
       end if
+
+      print*,"第",iter,"次迭代完成"
 
       refed = 0
 
       if(iter >= max_iter)then
          isover = .true.
-         print*,"Reached the preset maximum number of iterations"
+         print*,"到达预设最大迭代次数"
       end if
 
    end do
 
-   print*,"All iterations are completed, and the total number of iterations is",iter
+   print*,"迭代全部完成，总迭代次数为",iter
 
 !--------------------------------------------------------------------------
-! 6. Record the end result
+! 6. 记录最终结果
 !--------------------------------------------------------------------------
       write(it,'(i2.2)')iter
       !lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/result/gridfile.nc4"
@@ -1486,7 +1501,7 @@ end if
 
    subroutine CHECK(STATUS)
       INTEGER, intent (in) :: STATUS
-      if  (STATUS .NE. NF90_NOERR) then 
+      if  (STATUS .NE. NF90_NOERR) then ! nf_noerr=0 表示没有错误
          print *, NF90_STRERROR(STATUS)
          stop 'stopped'
       endif
@@ -1617,11 +1632,12 @@ end if
          lats(i) = 90. - i * dy 
       end do
 
-!$OMP PARALLEL DO NUM_THREADS(96) SCHEDULE(DYNAMIC,1)&
+!$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1)&
 !$OMP PRIVATE(i,j,dx,dy)
       do j = 1,nlats_source,1
          do i = 1,nlons_source,1
             if(lone(i)<lonw(i))then   ! west edge is more western than data line
+                        ! 西部边缘处于日期线西方
                dx = (lone(i)-lonw(i)+360.0)*deg2rad
             else
                dx = (lone(i)-lonw(i))*deg2rad
@@ -1632,13 +1648,14 @@ end if
                dy = sin(lats(j)*deg2rad) - sin(latn(j)*deg2rad)
             end if
             area(i,j) = dx*dy*re*re
-
+                        ! 弧长公式解求面积
          end do
       end do
 !$OMP END PARALLEL DO
 
       global = sum(area(:,:))
 
+      ! 确保网格单元的总面积与其边缘定义的网格面积相同
       dx = (180. - (-180.)) * deg2rad
       dy = sin(90.*deg2rad) - sin(-90.*deg2rad)
       error = dx*dy*re*re
@@ -1657,18 +1674,25 @@ end if
       implicit none
 
       integer :: inc(4),i,j,iscross_l(2),stat,num_inter
-      integer,allocatable :: iscross_g(:)                   ! Determine whether the unstructured grid line segment crosses the latitude and longitude grid
+      integer,allocatable :: iscross_g(:)                   ! 判断非结构网格线段是否穿过经纬度网格
       real(r8),intent(in) :: lon,lat
       real(r8) :: minlat,maxlat,dx,dy,minlon,maxlon
-      real(r8),intent(in) :: ustr(3,2)     ! Vertex of unstructured grid element
-      real(r8) :: ustr_move(3,2)                ! Non-structural grid longitude
-      real(r8) :: point(4,2)                      ! Vertex of the latitude and longitude grid
-      real(r8) :: center_point(2)                 ! Unstructured grid cell center point
-      real(r8) :: interarea_points(20,2)          ! Vertex of the area where two grids intersect
-      real(r8),allocatable :: inter_points(:,:,:)           ! The intersection of two grids
-      real(r8),allocatable :: area(:)   ! The area of a triangle consisting of two adjacent points of an unstructured grid and the vertices of any latitude and longitude grid
-      real(r8),dimension(5) :: area_i   ! The area of a triangle composed of two adjacent points of the latitude and longitude grid and the vertices of any unstructured grid
+      real(r8),intent(in) :: ustr(3,2)     ! 非结构网格单元顶点
+      real(r8) :: ustr_move(3,2)                ! 非结构网格经度移动后的点
+      real(r8) :: point(4,2)                      ! 经纬度网格顶点
+      real(r8) :: center_point(2)                 ! 非结构网格单元中心点
+      real(r8) :: interarea_points(20,2)          ! 两网格相交区域顶点
+      real(r8),allocatable :: inter_points(:,:,:)           ! 两种网格的交点
+      real(r8),allocatable :: area(:)   ! 由非结构网格相邻两点与任一经纬度网格顶点组成的三角形面积
+      real(r8),dimension(5) :: area_i   ! 由经纬度网格相邻两点与任一非结构网格顶点组成的三角形面积
       real(r8) :: tmpa(2),tmpb(2),tmpc(2),tmpd(3,2)
+
+      !MoveLons              ! 移动越过180°经线的经度
+      !IsCrossGrid           ! 判断非结构网格线段是否与经纬度网格相交
+      !IsCrossLine2          ! 判断网格是否越过180°经线
+      !SortPoints            ! 对多边形各个顶点进行排序
+      !GetTriangleArea          ! 获取三角形网格面积
+      !GetAreaPercent           ! 获取非结构网格占经纬度网格比例
 
       maxlat = 0.
       minlat = 0.
@@ -1677,16 +1701,16 @@ end if
 
       iscross_l = 0
       iscross_g = 0
-      inc = 0                 ! Determine the number of latitude and longitude grid vertices in an unstructured grid
-      IsInUstrGrid = 0        ! The position relationship between latitude and longitude grid and unstructured grid is determined
-      center_point = 0        ! Center point of latitude and longitude grid
-      num_inter = 0           ! Number of polygon vertices of overlapping area of two meshes
-      interarea_points = 0    ! Two kinds of mesh overlap polygon vertices
+      inc = 0                 ! 判断经纬度网格顶点在非结构网格中的数量
+      IsInUstrGrid = 0        ! 判断经纬度网格与非结构网格位置关系
+      center_point = 0        ! 经纬度网格中心点
+      num_inter = 0           ! 两种网格重合面积多边形顶点数量
+      interarea_points = 0    ! 两种网格重叠多边形顶点
 
       dx = 360. / nlons_source
       dy = 180. / nlats_source
 
-      ! Calculate the vertex coordinates of the latitude and longitude grid
+      ! 计算经纬度网格顶点坐标
       point(1,1) = lon + dx/2.
       point(1,2) = lat + dy/2.
       point(2,1) = lon - dx/2.
@@ -1696,7 +1720,7 @@ end if
       point(4,1) = lon + dx/2.
       point(4,2) = lat - dy/2.
 
-      ! Ensure that the absolute latitude of the latitude grid does not exceed 90°
+      ! 确保经纬度网格纬度绝对值不超过90°
       do i = 1,4,1
          if(point(i,2) > 90.)then
             point(i,2) = 90.
@@ -1706,7 +1730,7 @@ end if
       end do
 
 !------------------------------------------------------------------
-! Preliminary screening based on latitude
+! 根据纬度初步筛选
 !------------------------------------------------------------------
 
       maxlat = maxval(ustr(1:3,2))
@@ -1732,7 +1756,7 @@ end if
       area = 0
 
 !-------------------------------------------------------------------------------------
-! Determine whether the two grids cross ±180° longitude
+! 判断两网格是否越过±180°经线
 !-------------------------------------------------------------------------------------
       if(point(1,1) > 180.)then
          iscross_l(1) = 1
@@ -1743,7 +1767,7 @@ end if
       iscross_l(2) = IsCrossLine2(ustr_move(:,1),3)
 
 !-------------------------------------------------------------------------------------
-! Move the grid point longitude according to the above judgment
+! 根据上述判断移动网格点经度
 !-------------------------------------------------------------------------------------
       if((iscross_l(1) /= 0).or.(iscross_l(2) == 1))then
          if(iscross_l(1) == -1)then
@@ -1760,7 +1784,7 @@ end if
       end if
 
 !-------------------------------------------------------------------------------------
-! Filter the grid by longitude
+! 根据经度筛选网格
 !-------------------------------------------------------------------------------------
       minlon = minval(ustr_move(1:3,1))
       maxlon = maxval(ustr_move(1:3,1))
@@ -1771,7 +1795,7 @@ end if
       end if
 
 !-------------------------------------------------------------------------------------
-! Start to determine the position relationship between the two grids and record key points
+! 开始判断两个网格间的位置关系，并记录关键点
 !-------------------------------------------------------------------------------------
       tmpa = ustr_move(1, 1:2)
       tmpb = ustr_move(2, 1:2)
@@ -1789,8 +1813,8 @@ end if
       iscross_g(3) = IsCrossGrid(point, tmpa, tmpb, tmpd)
       !iscross_g(3) = IsCrossGrid(point,ustr_move(1,:),ustr_move(3,:),inter_points(3,:,:))      
 
-      ! Calculate the number of vertices in the unstructured grid
-      ! If it is 4, it contains, otherwise it intersects
+      ! 计算经纬度网格位于非结构网格中的顶点数目
+      ! 若为4，则包含，否则相交
       do i = 1,4,1
          area = 0.
          tmpa = ustr_move(1, 1:2)
@@ -1822,18 +1846,18 @@ end if
       !print*,"inc",inc
 
 !----------------------------------------------------------------------------------------------------                
-! Calculate the overlapping area between the unstructured grid and the latitude and longitude grid
-! 1. Find points in the latitude and longitude grid of the unstructured grid
-! 2. Find points in the unstructured grid where the latitude and longitude grid is located
-! 3. Find the intersection point between the unstructured grid and the latitude and longitude grid
-! 4. Sort them and combine them into convex polygons (or triangles)
-! 5. Calculate the area of the figure
+! 计算非结构网格与经纬度网格重叠面积
+! 1.寻找非结构网格位于经纬度网格中的点
+! 2.寻找经纬度网格位于非结构网格中的点
+! 3.寻找非结构网格与经纬度网格的交点
+! 4.将它们进行排序，组合成凸多边形（或三角形）
+! 5.计算该图形面积
 !---------------------------------------------------------------------------------------------------
 
-      if(sum(inc) == 4)then   ! If contain
+      if(sum(inc) == 4)then   ! 若包含
          IsInUstrGrid = 1
          return
-      else if((sum(inc) == 0).and.(sum(iscross_g) == 0))then  ! It does not intersect if it is not included
+      else if((sum(inc) == 0).and.(sum(iscross_g) == 0))then  ! 若不包含也不相交
          IsInUstrGrid = -1
          return
       else
@@ -1903,7 +1927,7 @@ end if
    END FUNCTION IsInUstrGrid
 
 
-   ! Determine whether the grid crosses the 189° and -180° longitude lines
+   ! 判断网格是否越过189°与-180°经线
    INTEGER FUNCTION IsCrossLine2(lons,num)
 
       implicit none
@@ -1925,7 +1949,7 @@ end if
    END FUNCTION IsCrossLine2
 
 
-   ! Adjust the longitude of the grid points
+   ! 调整网格点经度
    INTEGER FUNCTION MoveLons(lons,num,lor)         ! lor = left or right
 
       implicit none
@@ -1934,13 +1958,13 @@ end if
       integer,intent(in) :: num,lor
       real(r8),dimension(num) :: lons
 
-      if(lor == 1)then         
+      if(lor == 1)then          ! 部分右移
          do i = 1,num,1
             if(lons(i) < 0)then
                lons(i) = lons(i) + 360.
             end if
          end do
-      else if((lor == 2).and.(lons(1) < 0))then    
+      else if((lor == 2).and.(lons(1) < 0))then      ! 全部右移
          do i = 1,num,1
             lons(i) = lons(i) + 360.
          end do
@@ -1951,12 +1975,12 @@ end if
    END FUNCTION MoveLons
 
 
-   ! Determine whether the unstructured grid line segment crosses the latitude and longitude grid
+   ! 判断非结构网格线段是否穿过经纬度网格
    INTEGER FUNCTION IsCrossGrid(point,a,b,inter_point)
 
       implicit none
 
-      real(r8),dimension(2) :: a,b   
+      real(r8),dimension(2) :: a,b      ! 直线端点
       real(r8),dimension(2) :: x,y
       real(r8),dimension(4,2) :: point
       real(r8),dimension(3,2) :: inter_point
@@ -2061,7 +2085,7 @@ end if
    END FUNCTION IsCrossGrid
 
 
-   ! Calculate the area of the triangle (by latitude and longitude, not the actual area)
+   ! 计算三角形面积（按经纬度，并非实际面积）
    REAL FUNCTION GetTriangleArea(a,b,c)
 
       implicit none
@@ -2082,7 +2106,7 @@ end if
    END FUNCTION GetTriangleArea
 
 
-   ! Gets the proportion of unstructured grids that contain latitude and longitude grids
+   ! 获取非结构网格包含经纬度网格的比例
    REAL FUNCTION GetAreaPercent(inter_point,num,point)
 
       implicit none
@@ -2116,7 +2140,7 @@ end if
       !inter_area = inter_area + GetTriangleArea(center_point,inter_point(1,:),inter_point(num,:))
 
       GetAreaPercent = inter_area / (abs((point(1,1) - point(2,1))*(point(1,2) - point(4,2))))
-      ! The area ratio is the overlapping triangle divided by the area of the latitude and longitude grid
+      ! 面积占比为重合三角形除以经纬度网格面积
 
       !if(GetAreaPercent >= 1)then
       !        GetAreaPercent = 0
@@ -2125,7 +2149,7 @@ end if
    END FUNCTION GetAreaPercent
 
 
-   ! Sort points into polygons
+   ! 将点排序成多边形
    SUBROUTINE SortPoints(points,num)
 
       implicit none

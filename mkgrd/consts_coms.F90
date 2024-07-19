@@ -1,4 +1,4 @@
-!===============================================================================
+!==============================================================================
 ! OLAM was originally developed at Duke University by Robert Walko, Martin Otte,
 ! and David Medvigy in the project group headed by Roni Avissar.  Development
 ! has continued by the same team working at other institutions (University of
@@ -630,6 +630,7 @@ Contains
 
         ! Compute and store jtab%jend(1)
         do iloop = 1, nlm
+            if(size(jtab_m(iloop)%jend) == 0) cycle
             jtab_m(iloop)%jend(1) = 0
             do im = 2, mma
                 if (itab_m(im)%loop(iloop)) then
@@ -640,6 +641,7 @@ Contains
         enddo
 
         do iloop = 1, nlv
+            if(size(jtab_v(iloop)%jend) == 0) cycle
             jtab_v(iloop)%jend(1) = 0
             do iv = 2, mva
                 if (itab_v(iv)%loop(iloop)) then
@@ -650,6 +652,7 @@ Contains
         enddo
 
         do iloop = 1, nlw
+            if(size(jtab_w(iloop)%jend) == 0) cycle
             jtab_w(iloop)%jend(1) = 0
             do iw = 2, mwa
                 if (itab_w(iw)%loop(iloop)) then
@@ -661,18 +664,21 @@ Contains
 
         ! Allocate and zero-fill JTAB_M%IM, JTAB_V%IV, JTAB_W%IW
         do iloop = 1, nlm
+            if(size(jtab_m(iloop)%jend) == 0) cycle
             jend = jtab_m(iloop)%jend(1)
             allocate (jtab_m(iloop)%im(jend))
             jtab_m(iloop)%im(1:jend) = 0
         enddo
 
         do iloop = 1, nlv
+            if(size(jtab_v(iloop)%jend) == 0) cycle
             jend = jtab_v(iloop)%jend(1)
             allocate (jtab_v(iloop)%iv(jend))
             jtab_v(iloop)%iv(1:jend) = 0
         enddo
 
         do iloop = 1, nlw
+            if(size(jtab_w(iloop)%jend) == 0) cycle
             jend = jtab_w(iloop)%jend(1)
             allocate (jtab_w(iloop)%iw(jend))
             jtab_w(iloop)%iw(1:jend) = 0

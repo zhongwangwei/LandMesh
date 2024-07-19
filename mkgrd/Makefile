@@ -16,8 +16,6 @@ OBJS = \
 		consts_coms.o \
       MOD_Get_Distance.o\
       icosahedron.o \
-      blas.o \
-      lapack.o\
       MOD_domain_judge.o\
 		MOD_GetContain.o\
 		MOD_Get_Contain_Patch.o\
@@ -30,7 +28,7 @@ OBJS = \
 ####################################################################
 
 ${EXECUTABLE} : ${OBJS}  
-	${FF} ${FOPTS} ${OBJS} -o $@ ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS}-o $@ ${LDFLAGS}
 	@echo 'program for making unstructure mesh surface data have been compiled successfully !'
 
 $(OBJS) : %.o : %.F90 

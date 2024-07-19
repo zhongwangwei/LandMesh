@@ -10,33 +10,35 @@ module MOD_GetContain
 contains
     subroutine  Get_Contain()
 
-        real(r8), allocatable :: lon_i(:), lat_i(:)            ! Center point of latitude and longitude grid
-        real(r8), allocatable :: area_fine_gridcell(:, :)      ! Area of each unit of the latitude and longitude grid
-        real(r8), allocatable :: mp(:, :), wp(:, :)            ! 记录Center point and area of triangular mesh and polygon mesh
-        real(r8), allocatable :: mp_ii(:, :)                   ! Record the latitude and longitude grids contained in the triangular grid (before processing)
-        real(r8), allocatable :: mp_ii_new(:, :)               ! Record the latitude and longitude grids contained in the triangular grid (after processing)
-        real(r8) :: maxlat, minlat                             ! Enter the latitude extremum of the unstructured grid       
-        real(r8) :: isinply, sjx(7, 2), dx, dy
-        integer, allocatable :: mp_id(:, :)                    ! Record the number of triangular mesh containing polygonal mesh and the starting position in mp_ii (before processing)
-        integer, allocatable :: mp_id_new(:, :)                ! Record the number of triangular mesh containing polygonal mesh and the starting position in mp_ii (after processing)
-        integer, allocatable :: ngrmw(:, :), ngrwm(:, :)       ! Neighborhood array of center points of triangular and polygon meshes
-        real(r8), allocatable :: landtypes(:, :)                ! Land type
-        integer, allocatable :: seaorland(:, :)                ! Determine whether the latitude and longitude grid is land or sea
-        integer :: sjx_points, lbx_points                      ! The number of triangular and polygonal meshes
-        integer :: ncid, varid(6), dimID_sjx, dimID_lbx        ! The nc file stores the related variables
+        real(r8), allocatable :: lon_i(:), lat_i(:)            ! 经纬度网格中心点
+        real(r8), allocatable :: area_fine_gridcell(:, :)      ! 经纬度网格各单元面积
+        real(r8), allocatable :: mp(:, :), wp(:, :)            ! 记录三角形网格与多边形网格中心点与面积
+        real(r8), allocatable :: mp_ii(:, :)                   ! 记录三角形网格包含的经纬度网格(处理前)
+        real(r8), allocatable :: mp_ii_new(:, :)               ! 记录三角形网格包含的经纬度网格(处理后)
+        real(r8) :: maxlat, minlat                             ! 输入非结构网格的纬度极值       
+        real(r8) :: isinply                                    ! 计算得出的包含比例
+        real(r8) :: sjx(7, 2), dx, dy
+        integer, allocatable :: mp_id(:, :)                    ! 记录三角形网格包含多边形网格数量与在mp_ii中的起始位置(处理前)
+        integer, allocatable :: mp_id_new(:, :)                ! 记录三角形网格包含多边形网格数量与在mp_ii中的起始位置(处理后)
+        integer, allocatable :: ngrmw(:, :), ngrwm(:, :)       ! 三角形网格与多边形网格中心点的邻域数组
+        real(r8), allocatable :: landtypes(:, :)                ! 土地类型
+        integer, allocatable :: seaorland(:, :)                ! 判断经纬度网格为陆地或海洋
+        integer :: sjx_points, lbx_points                      ! 三角形网格数与多边形网格数
+        integer :: ncid, varid(6), dimID_sjx, dimID_lbx        ! nc文件存储相关变量
         integer :: i, j, k, l, sum_land, sum_sea
         integer :: num_i, id, numpatch
-        integer :: num_null                                    ! The number of null values that need to be processed
+        integer :: num_null                                    ! 需要处理的空值数量
         character(LEN = 256) :: lndname, nxpc,flnm
-        character(LEN = 20) :: p_name(6) = (/"GLONW", "GLATW", "GLONM", "GLATM", "itab_w%im", "itab_m%iw"/)
-        logical :: ispart                                      ! 
-        logical,allocatable :: IsInRfArea(:,:)                 ! Indicates whether the latitude and longitude grid is in the refinement region
+        character(LEN = 20),dimension(6) :: p_name
+        logical :: ispart                                      ! 表示该经纬度网格是否被完全包含
+        logical,allocatable :: IsInRfArea(:,:)                 ! 表示该经纬度网格是否在细化区域中
         
         isinply = 0.
+        p_name = [character(len=20) :: "GLONW", "GLATW", "GLONM", "GLATM", "itab_w%im", "itab_m%iw"]
 
-        print*, "Start reading unstructured grid data......"
+        print*, "开始读取非结构网格数据......"
         print*, ""
-        write(nxpc, '(I3.3)')NXP
+        write(nxpc, '(I4.4)')NXP
         flnm = trim(base_dir) // trim(EXPNME) // '/makegrid/gridfile/gridfile_NXP' // trim(nxpc) // '.nc4'
         print*, flnm
         CALL CHECK(NF90_OPEN(trim(flnm), nf90_nowrite, ncid))
@@ -54,10 +56,10 @@ contains
         print*, "sjx_points = ", sjx_points
         print*, "lbx_points = ", lbx_points
 
-        allocate(wp(lbx_points, 3))          ! Longitude, latitude, area
+        allocate(wp(lbx_points, 3))          ! 经度，纬度，面积
         allocate(mp(sjx_points, 3))
-        allocate(mp_id(sjx_points, 2))    ! The unstructured grid contains the number of latitude and longitude grids at the mp_ii position
-        allocate(ngrwm(8, lbx_points))       ! Neighborhood array, the extra dimension represents adjacent points
+        allocate(mp_id(sjx_points, 2))    ! 非结构网格包含经纬度网格数量，在mp_ii位置
+        allocate(ngrwm(8, lbx_points))       ! 邻域数组，多出来的一维表示相邻点数
         allocate(ngrmw(4, sjx_points))
         wp = 0.
         mp = 0.
@@ -73,9 +75,15 @@ contains
         CALL CHECK(NF90_GET_VAR(ncid, varid(6), ngrmw(1:3, :)))
         CALL CHECK(NF90_CLOSE(ncid))
 
-        ! Gets the number of adjacent w(m) points for each m(w) point
+        print*, "非结构网格数据读取完成"
+        print*, ""
+        print*, "共有", sjx_points, "个三角形网格和", lbx_points, "个多边形网格"
+        print*, ""
+
+        ! 获取每个m(w)点的相邻w(m)点数量
         call GetNgrNum(sjx_points, lbx_points, ngrmw, ngrwm)
 
+        ! 地表覆盖类型数组
         allocate(landtypes(nlons_source, nlats_source))
 
         if(lcs == "igbp")then
@@ -91,6 +99,7 @@ contains
         CALL CHECK(NF90_CLOSE(ncid))
         print*, "landtypes", minval(landtypes), maxval(landtypes)
 
+        ! 地表网格分辨率
         dx = 360. / nlons_source
         dy = 180. / nlats_source
 
@@ -119,64 +128,65 @@ contains
                 end if
             end do
         end do
-
+        print*, "海洋网格个数为", sum_sea, "，陆地网格个数为", sum_land
         deallocate(landtypes)
 
         allocate(area_fine_gridcell(nlons_source, nlats_source))
         area_fine_gridcell(:, :) = 0.
-        print*, "Start calculating the area of the latitude and longitude grid......"
+        print*, "开始计算经纬度网格面积......"
         call cellarea(area_fine_gridcell, nlons_source, nlats_source)
-        print*, "The latitude and longitude grid area is calculated"
+        print*, "经纬度网格面积计算完成"
 
         maxlat = maxval(mp(:, 2))
         minlat = minval(mp(:, 2))
 
         num_i = 0
 
+        ! 判断经纬度网格是否位于细化区域内
         allocate(IsInRfArea(nlons_source,nlats_source))
         IsInRfArea = .false.
         CALL IsInRefineArea(IsInRfArea,lon_i,lat_i,dx,dy)
 
         ! --------------------------------------------------------
-        ! Obtain the number and proportion of latitude and longitude grids in the triangular grid
-        ! 1. Calculate the array size
-        ! 2. Allocate memory
-        ! 3. Calculate inclusion relationships
+        ! 获取三角形网格中经纬度网格的数量及所占面积比例
+        ! 1.计算数组大小
+        ! 2.分配内存
+        ! 3.计算包含关系
         ! --------------------------------------------------------
 
 
-        ! First calculate the array size
-        print*, "Start to calculate the triangle grid and latitude and longitude grid contain relation array size......"
+        ! 首先计算数组大小
+        print*, "开始计算三角形网格与经纬度网格包含关系数组大小......"
         !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC)&
         !$OMP PRIVATE(i,j,k,l,sjx,isinply,ispart)
         do i = 1, nlons_source, 1
             num_i = num_i + 1
             !print*, num_i
-            do j = 1, nlats_source, 1                    ! Loop through the initial grid cell
-               if(IsInRfArea(i,j) == .false.)then
+            do j = 1, nlats_source, 1                    ! 循环遍历初始网格单元
+               if(IsInRfArea(i,j) .eqv. .false.)then
                   cycle
                end if
-               ispart = .false.
+               ispart = .false.  ! 表示是否被完全包含
                if(seaorland(i, j) == 0)then
                   cycle
-               end if                           ! Only traverse the ocean grid
-               do k = 1, sjx_points, 1           ! Loop through the triangular grid
-                  if(ispart == .true.)then
+               end if                           ! 只遍历海洋网格
+               do k = 1, sjx_points, 1           ! 循环遍历三角形网格
+                  if(ispart .eqv. .true.)then
                      exit
                   end if
-                  if(ngrmw(4, k) == 3)then       ! Determine if there are three recorded w points in the neighborhood of point m
+                  if(ngrmw(4, k) == 3)then       ! 判断m点邻域是否有三个被记录的w点
                      sjx = 0.
                      do l = 1, 3, 1
-                        sjx(l, 1:2) = wp(ngrmw(l, k), 1:2)  ! Record the vertex information of the triangle mesh
+                        sjx(l, 1:2) = wp(ngrmw(l, k), 1:2)  ! 记录三角形网格顶点信息
                      end do
 
                      isinply = IsInUstrGrid(sjx, lon_i(i), lat_i(j), 3, maxlat, minlat)
 
-                     if(isinply == 1.)then      ! Complete inclusion
+                     if(isinply == 1.)then      ! 表示完全包含
                         ispart = .true.
                      end if
 
-                     if(isinply > 0.)then       ! Record the number of latitude and longitude grids contained in each unstructured grid
+                     if(isinply > 0.)then       ! 记录每个非结构网格包含经纬度网格数量
                         mp_id(k, 1) = mp_id(k, 1) + 1
                      end if
                   end if
@@ -185,13 +195,17 @@ contains
          end do
          !$OMP END PARALLEL DO
 
-        print*, "The size of the containing relational array is calculated......"
+        print*, "包含关系数组大小计算完成......"
 
+        ! 分配数组内存
+        ! 为了防止在第二次重复计算时与第一次计算产生偏差
+        ! 给每个非结构网格多预留一倍的空间
         numpatch = INT(sum(mp_id(:, 1))) * 2
+        print*, "非结构网格包含经纬度网格总数为", numpatch / 2.
         allocate(mp_ii(numpatch, 4))
         mp_ii = 0.
 
-        ! mp_id(:,1) records the position of the mp or wp array in the mp_ii array
+        ! mp_id(:,1)记录mp或wp数组在mp_ii数组中的位置
         mp_id(1, 2) = 1
 
         do i = 2, sjx_points, 1
@@ -201,14 +215,14 @@ contains
         mp_id(:, 1) = 0
         num_i = 0
 
-      print*, "The inclusion relationship between the triangular mesh and the latitude and longitude mesh is calculated......"
+      print*, "开始计算三角形网格与经纬度网格包含关系......"
       !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC)&
       !$OMP PRIVATE(i,j,k,l,ispart,sjx,isinply,id)
       do i = 1, nlons_source, 1
             num_i = num_i + 1
             !print*, num_i
             do j = 1, nlats_source, 1
-               if(IsInRfArea(i,j) == .false.)then
+               if(IsInRfArea(i,j) .eqv. .false.)then
                   cycle
                end if
                ispart = .false.
@@ -216,45 +230,47 @@ contains
                   cycle
                end if
                do k = 1, sjx_points, 1
-                  if(ispart == .true.)then
+                  if(ispart .eqv. .true.)then
                      exit
                   end if
                   if(ngrmw(4, k) == 3)then
                      sjx = 0.
-                  do l = 1, 3, 1
-                     sjx(l, 1:2) = wp(ngrmw(l, k), 1:2)
-                  end do
+                     do l = 1, 3, 1
+                        sjx(l, 1:2) = wp(ngrmw(l, k), 1:2)
+                     end do
 
-                  isinply = IsInUstrGrid(sjx, lon_i(i), lat_i(j), 3, maxlat, minlat)
+                     isinply = IsInUstrGrid(sjx, lon_i(i), lat_i(j), 3, maxlat, minlat)
 
-                  if(isinply == 1.)then
-                     mp_id(k, 1) = mp_id(k, 1) + 1
-                     mp(k, 3) = mp(k, 3) + area_fine_gridcell(i, j)     ! Unstructured grid area
+                     if(isinply == 1.)then
+                        mp_id(k, 1) = mp_id(k, 1) + 1
+                        mp(k, 3) = mp(k, 3) + area_fine_gridcell(i, j)     ! 非结构网格面积
 
-                     id = mp_id(k, 2) + mp_id(k, 1) - 1
-                     mp_ii(id, 1) = i
-                     mp_ii(id, 2) = j
-                     mp_ii(id, 3) = isinply
-                     mp_ii(id, 4) = area_fine_gridcell(i, j)
+                        id = mp_id(k, 2) + mp_id(k, 1) - 1
+                        mp_ii(id, 1) = i  ! 经度索引
+                        mp_ii(id, 2) = j  ! 纬度索引
+                        mp_ii(id, 3) = isinply  ! 包含比例
+                        mp_ii(id, 4) = area_fine_gridcell(i, j)   ! 包含面积
 
-                     ispart = .true.
-                  else if(isinply > 0.)then
-                     mp_id(k, 1) = mp_id(k, 1) + 1
-                     mp(k, 3) = mp(k, 3) + area_fine_gridcell(i, j) * isinply
+                        ispart = .true.
+                     else if(isinply > 0.)then
+                        mp_id(k, 1) = mp_id(k, 1) + 1
+                        mp(k, 3) = mp(k, 3) + area_fine_gridcell(i, j) * isinply
 
-                     id = mp_id(k, 2) + mp_id(k, 1) - 1
-                     mp_ii(id, 1) = i
-                     mp_ii(id, 2) = j
-                     mp_ii(id, 3) = isinply
-                     mp_ii(id, 4) = area_fine_gridcell(i, j) * isinply
+                        id = mp_id(k, 2) + mp_id(k, 1) - 1
+                        mp_ii(id, 1) = i
+                        mp_ii(id, 2) = j
+                        mp_ii(id, 3) = isinply
+                        mp_ii(id, 4) = area_fine_gridcell(i, j) * isinply
 
+                     end if
                   end if
-               end if
+               end do
             end do
-         end do
       end do
       !$OMP END PARALLEL DO
 
+        ! 将由于多预留空间导致的空值删去
+        ! 并重新计算序号
         do i = 1, sjx_points, 1
             num_null = 0
             do j = mp_id(i, 2), mp_id(i, 2) + mp_id(i, 1) - 1, 1
@@ -265,6 +281,7 @@ contains
             mp_id(i, 1) = mp_id(i, 1) - num_null
         end do
 
+        ! 分配储存消除空值后信息的数组内存
         allocate(mp_id_new(sjx_points, 2))
         mp_id_new = 0
         mp_id_new(:, 1) = mp_id(:, 1)
@@ -287,11 +304,11 @@ contains
             end do
         end do
 
-        print*, "The triangular grid contains the array. The calculation is complete and the storage begins......"
+        print*, "三角形网格包含数组计算完成，开始进行存储......"
         print*, ""
         flnm = trim(base_dir) // trim(EXPNME) // '/makegrid/contain/initial' 
         call SaveFile(mp, mp_id_new, mp_ii_new, sjx_points, numpatch, flnm)
-        print*, "Unstructured grid storage complete"
+        print*, "非结构网格存储完成"
         print*, ""
 
 
@@ -299,14 +316,14 @@ contains
 
     SUBROUTINE CHECK(STATUS)
         INTEGER, intent (in) :: STATUS
-        if  (STATUS .NE. NF90_NOERR) then 
+        if  (STATUS .NE. NF90_NOERR) then ! nf_noerr=0 表示没有错误
             print *, NF90_STRERROR(STATUS)
             stop 'stopped'
         endif
     END SUBROUTINE CHECK
 
 
-    ! Grid neighborhood computation processing
+    ! 网格邻域计算处理，计算m(w)点相邻的w(m)点数量
     SUBROUTINE GetNgrNum(sjx_points, lbx_points, ngrmw, ngrwm)
 
         implicit None
@@ -315,7 +332,7 @@ contains
         integer, dimension(4, sjx_points) :: ngrmw
         integer, dimension(8, lbx_points) :: ngrwm
 
-        !$OMP PARALLEL DO NUM_THREADS(150) SCHEDULE(DYNAMIC,1) &
+        !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1) &
         !$OMP PRIVATE(i,j,flag)
         do i = 1, sjx_points, 1
             flag = 0
@@ -323,12 +340,12 @@ contains
                 if(ngrmw(j, i) /= 1)then
                     flag = flag + 1
                 end if
-            end do  ! Point 1 m and point w are zero
+            end do  ! 1号m点和w点均为零值
             ngrmw(4, i) = flag
         end do
         !$OMP END PARALLEL DO
 
-        !$OMP PARALLEL DO NUM_THREADS(150) SCHEDULE(DYNAMIC,1) &
+        !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1) &
         !$OMP PRIVATE(i,j,flag)
         do i = 1, lbx_points, 1
             flag = 0
@@ -344,7 +361,7 @@ contains
     END SUBROUTINE GetNgrNum
 
 
-    ! Calculate the latitude and longitude grid area
+    ! 计算经纬度网格面积
     SUBROUTINE CellArea(area, nlons, nlats)
 
         implicit none
@@ -374,12 +391,12 @@ contains
             lats(i) = 90. - i * dy
         end do
 
-        !$OMP PARALLEL DO NUM_THREADS(96) SCHEDULE(DYNAMIC,1)&
+        !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1)&
         !$OMP PRIVATE(i,j,dx,dy)
         do j = 1, nlats, 1
             do i = 1, nlons, 1
                 if(lone(i)<lonw(i))then   ! west edge is more western than data line
-                    ! The western edge is west of the dateline
+                    ! 西部边缘处于日期线西方
                     dx = (lone(i) - lonw(i) + 360.0) * deg2rad
                 else
                     dx = (lone(i) - lonw(i)) * deg2rad
@@ -390,14 +407,14 @@ contains
                     dy = sin(lats(j) * deg2rad) - sin(latn(j) * deg2rad)
                 end if
                 area(i, j) = dx * dy * re * re
-                ! The arc length formula solves the area
+                ! 弧长公式解求面积
             end do
         end do
         !$OMP END PARALLEL DO
 
         global = sum(area(:, :))
 
-        ! Ensure that the total area of the grid cells is the same as the area of the grid defined by their edges
+        ! 确保网格单元的总面积与其边缘定义的网格面积相同
         dx = (180. - (-180.)) * deg2rad
         dy = sin(90. * deg2rad) - sin(-90. * deg2rad)
         error = dx * dy * re * re
@@ -479,7 +496,7 @@ contains
     END SUBROUTINE SaveFile
 
 
-    ! The inclusion relationship between unstructured grid and latitude and longitude grid is calculated
+    ! 计算非结构网格与经纬度网格的包含关系
     REAL FUNCTION IsInUstrGrid(ustr, lon, lat, num_points, maxlat_m, minlat_m)
 
         implicit none
@@ -488,23 +505,23 @@ contains
         integer, intent(in) :: num_points
         integer :: num_points_i, sjxorlbx_i, num_inter
         real(r8), intent(in) :: lon, lat, maxlat_m, minlat_m
-        real(r8), dimension(7, 2), intent(in) :: ustr  ! Vertex of unstructured grid element
-        real(r8), allocatable :: ustr_move(:, :)             ! Non-structural grid longitude
-        real(r8), dimension(4, 2) :: point                   ! Vertex of the latitude and longitude grid
-        real(r8), dimension(2) :: center_point              ! Unstructured grid cell center point
-        integer, allocatable :: iscross_g(:)                ! Determine whether the unstructured grid line segment crosses the latitude and longitude grid
-        real(r8), dimension(20, 2) :: interarea_points       ! Vertex of the area where two grids intersect
-        real(r8), allocatable :: inter_points(:, :, :)        ! The intersection of two grids
-        real(r8), allocatable :: area(:)   ! The area of a triangle consisting of two adjacent points of an unstructured grid and the vertices of any latitude and longitude grid
-        real(r8), dimension(5) :: area_i   ! The area of a triangle composed of two adjacent points of the latitude and longitude grid and the vertices of any unstructured grid
+        real(r8), dimension(7, 2), intent(in) :: ustr  ! 非结构网格单元顶点
+        real(r8), allocatable :: ustr_move(:, :)             ! 非结构网格经度移动后的点
+        real(r8), dimension(4, 2) :: point                   ! 经纬度网格顶点
+        real(r8), dimension(2) :: center_point              ! 非结构网格单元中心点
+        integer, allocatable :: iscross_g(:)                ! 判断非结构网格线段是否穿过经纬度网格
+        real(r8), dimension(20, 2) :: interarea_points       ! 两网格相交区域顶点
+        real(r8), allocatable :: inter_points(:, :, :)        ! 两种网格的交点
+        real(r8), allocatable :: area(:)   ! 由非结构网格相邻两点与任一经纬度网格顶点组成的三角形面积
+        real(r8), dimension(5) :: area_i   ! 由经纬度网格相邻两点与任一非结构网格顶点组成的三角形面积
         real(r8) :: dx, dy, maxlat, minlat, maxlon, minlon
         real(r8) :: tmpa(2),tmpb(2),tmpc(2),tmpd(3,2)
 
-        inc = 0                 ! Determine the number of latitude and longitude grid vertices in an unstructured grid
-        IsInUstrGrid = 0        ! The position relationship between latitude and longitude grid and unstructured grid is determined
-        center_point = 0.       ! Center point of latitude and longitude grid
-        ispole = 0              ! Determine whether an unstructured grid contains poles
-        interarea_points = 0.   ! Two kinds of mesh overlap polygon vertices
+        inc = 0                 ! 判断经纬度网格顶点在非结构网格中的数量
+        IsInUstrGrid = 0        ! 判断经纬度网格与非结构网格位置关系
+        center_point = 0.       ! 经纬度网格中心点
+        ispole = 0              ! 判断非结构网格是否包含极点
+        interarea_points = 0.   ! 两种网格重叠多边形顶点
         iscross_l = 0
         point = 0.
         num_inter = 0
@@ -527,7 +544,7 @@ contains
         dy = 180. / nlats_source
 
 
-        ! Calculate the vertex coordinates of the latitude and longitude grid
+        ! 计算经纬度网格顶点坐标
         point(1, 1) = lon + dx / 2.
         point(1, 2) = lat + dy / 2.
         point(2, 1) = lon - dx / 2.
@@ -541,7 +558,7 @@ contains
         maxlat = maxval(ustr(1:num_points_i, 2))
         minlat = minval(ustr(1:num_points_i, 2))
 
-        ! Ensure that the absolute latitude of the latitude grid does not exceed 90°
+        ! 确保经纬度网格纬度绝对值不超过90°
         do i = 1, 4, 1
             if(point(i, 2) > 90.)then
                 point(i, 2) = 90.
@@ -550,14 +567,14 @@ contains
             end if
         end do
 
-        ! Filter the grid by latitude
+        ! 根据纬度筛选网格
         if((point(3, 2) > maxlat).or.(point(1, 2) < minlat))then
             IsInUstrGrid = -1
             return
         end if
 
         !------------------------------------------------------------------
-        ! Handle the top and bottom mesh of the triangular grid
+        ! 处理三角形网格最顶部与最底部的网格（极点）
         !------------------------------------------------------------------
         if(sjxorlbx_i == 3)then
             if(ustr(1, 2) == 90.)then
@@ -594,7 +611,7 @@ contains
         end if
 
         !------------------------------------------------------------------
-        ! Handle the top and bottom of the polygonal mesh
+        ! 处理多边形网格最顶部与最底部的网格（极点）
         !------------------------------------------------------------------
         if(ispole == 2)then
             if(point(1, 2) > maxlat_m)then
@@ -628,7 +645,7 @@ contains
         area = 0
 
         !-------------------------------------------------------------------------------------
-        ! Determine whether the two grids cross ±180° longitude
+        ! 判断两网格是否越过±180°经线
         !-------------------------------------------------------------------------------------
         if((point(1, 1) > 180.).or.(point(2, 1) < -180.))then
             iscross_l(1) = 1
@@ -641,7 +658,7 @@ contains
         end if
 
         !-------------------------------------------------------------------------------------
-        ! Move the grid point longitude according to the above judgment
+        ! 根据上述判断移动网格点经度
         !-------------------------------------------------------------------------------------
         if(iscross_l(1) == 1)then
             call MoveLons(point(:, 1), 4)
@@ -656,7 +673,7 @@ contains
         center_point = center_point / num_points_i
 
         !-------------------------------------------------------------------------------------
-        ! Filter the grid by longitude
+        ! 根据经度筛选网格
         !-------------------------------------------------------------------------------------
         minlon = minval(ustr_move(1:num_points_i, 1))
         maxlon = maxval(ustr_move(1:num_points_i, 1))
@@ -667,9 +684,10 @@ contains
         end if
 
         !-------------------------------------------------------------------------------------
-        ! Start to determine the position relationship between the two grids and record key points
+        ! 开始判断两个网格间的位置关系，并记录关键点
         !-------------------------------------------------------------------------------------
-        ! First determine that two grids intersect
+        ! 首先判断两个网格相交
+        ! 判断非结构网格的边与经纬度网格相交关系
         do i = 1, num_points_i - 1, 1
             tmpa = ustr_move(i, 1:2)
             tmpb = ustr_move(i + 1, 1:2)
@@ -690,9 +708,8 @@ contains
         !iscross_g(num_points_i) = IsCrossGrid(point, ustr_move(1, :), ustr_move(num_points_i, :), &
         !        inter_points(num_points_i, :, :))
 
-        ! Calculate the number of vertices in the unstructured grid
-        ! If it is 4, it contains, otherwise it intersects
-
+        ! 计算经纬度网格位于非结构网格中的顶点数目
+        ! 若为4，则包含，若为1~3，则相交
         do i = 1, 4, 1
             area = 0.
             if(sjxorlbx_i == 3)then
@@ -721,6 +738,8 @@ contains
                 !area(3) = GetTriangleArea(ustr_move(1, :), ustr_move(3, :), point(i, :))
                 !area(4) = GetTriangleArea(ustr_move(1, :), ustr_move(2, :), ustr_move(3, :))
 
+                ! 若该点与三角形网格三个顶点连线构成的三个三角形面积和与三角形网格面积相同
+                ! 则该点位于三角形网格内
                 if(abs(area(1) + area(2) + area(3) - area(4)) < 0.00005)then
                     inc(i) = 1
                 end if
@@ -758,23 +777,25 @@ contains
             end if
         end do
 
+        ! 当不计算比例时，只要相交就视为完全包含
         if (no_caculate_fraction) then
-        if((sum(inc) > 0).or.(sum(iscross_g) > 0))then
-            IsInUstrGrid = 1.
-            return
-        else
-            IsInUstrGrid = 0
-            return
-        end if
+            if((sum(inc) > 0).or.(sum(iscross_g) > 0))then
+               IsInUstrGrid = 1.
+               return
+            else
+               IsInUstrGrid = 0
+               return
+            end if
         endif
 
-        if(sum(inc) == 4)then   ! If contain
+        if(sum(inc) == 4)then   ! 若包含
             IsInUstrGrid = 1.
             return
-        else if((sum(inc) == 0).and.(sum(iscross_g) == 0))then  ! It does not intersect if it is not included
+        else if((sum(inc) == 0).and.(sum(iscross_g) == 0))then  ! 若不包含也不相交
             IsInUstrGrid = 0.
             return
         else
+            ! 计算并记录非结构网格顶点是否位于经纬度网格内
             do i = 1, 4, 1
                 if(inc(i) == 1)then
                     num_inter = num_inter + 1
@@ -830,13 +851,16 @@ contains
                 end if
             end do
 
+            ! num_iter表示两种网格顶点位于对方内部与交点的总个数
             if(num_inter == 0)then
                IsInUstrGrid = 0.
                return
             end if
 
+            ! 将两种网格顶点位于对方内部与交点进行排序
             call SortPoints(interarea_points, num_inter)
 
+            ! 计算相交图形面积占经纬度网格面积比例
             IsInUstrGrid = GetAreaPercent(interarea_points, num_inter, point)
 
         end if
@@ -844,7 +868,7 @@ contains
     END FUNCTION IsInUstrGrid
 
 
-    ! Determine whether the grid crosses the 189° and -180° longitude lines
+    ! 判断网格是否越过189°与-180°经线
     integer function IsCrossLine(lons, num)
 
         implicit none
@@ -867,7 +891,7 @@ contains
     end function IsCrossLine
 
 
-    ! Adjust the longitude of the grid points
+    ! 调整网格点经度
     SUBROUTINE MoveLons(lons, num)         ! lor = left or right
 
         implicit none
@@ -885,12 +909,12 @@ contains
     END SUBROUTINE MoveLons
 
 
-    ! Determine whether the unstructured grid line segment crosses the latitude and longitude grid
+    ! 判断非结构网格线段是否穿过经纬度网格
     integer function IsCrossGrid(point, a, b, inter_point)
 
         implicit none
 
-        real(r8), dimension(2), intent(in) :: a, b     
+        real(r8), dimension(2), intent(in) :: a, b      ! 直线端点
         real(r8), dimension(2) :: x, y
         real(r8), dimension(4, 2), intent(in) :: point
         real(r8), dimension(3, 2), intent(out) :: inter_point
@@ -996,7 +1020,7 @@ contains
     end function IsCrossGrid
 
 
-    ! Calculate the area of the triangle (by latitude and longitude, not the actual area)
+    ! 计算三角形面积（按经纬度，并非实际面积）
     real function GetTriangleArea(a, b, c)
 
         implicit none
@@ -1017,7 +1041,7 @@ contains
     end function GetTriangleArea
 
 
-    ! Gets the proportion of unstructured grids that contain latitude and longitude grids
+    ! 获取非结构网格包含经纬度网格的比例
     REAL FUNCTION GetAreaPercent(inter_point, num, point)
 
 
@@ -1053,7 +1077,7 @@ contains
         !inter_area = inter_area + GetTriangleArea(center_point, inter_point(1, :), inter_point(num, :))
 
         GetAreaPercent = inter_area / (abs((point(1, 1) - point(2, 1)) * (point(1, 2) - point(4, 2))))
-        ! The area ratio is the overlapping triangle divided by the area of the latitude and longitude grid
+        ! 面积占比为重合三角形除以经纬度网格面积
 
         if(GetAreaPercent >= 1)then
             GetAreaPercent = 1.
@@ -1062,7 +1086,7 @@ contains
     END FUNCTION GetAreaPercent
 
 
-    ! Sort points into polygons
+    ! 将点排序成多边形
     SUBROUTINE SortPoints(points, num)
 
 
@@ -1128,7 +1152,7 @@ contains
     END SUBROUTINE SortPoints
 
 
-    ! Determine whether the latitude and longitude grid is located in the refinement region
+    ! 判断经纬度网格是否位于细化区域
     SUBROUTINE IsInRefineArea(IsInRfArea,lon_i,lat_i,dx,dy)
 
       use refine_vars

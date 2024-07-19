@@ -4,25 +4,26 @@
 
 !ANCILLARY FUNCTIONS AND SUBROUTINES
 !-------------------
-!* :SUBROUTINE:"***" :  ***
+!* :SUBROUTINE:"colm_CaMa_init" :  Initialization of the coupler
 
-!Initial Author
-!--------------
-! Hanwen Fan and Zhongwang Wei @ SYSU
 
 !REVISION HISTORY
 !----------------
-! 2023.10.28  Hanwen Fan and Zhongwang Wei @ SYSU
 ! 2023.02.21  Zhongwang Wei @ SYSU
 ! 2021.12.02  Zhongwang Wei @ SYSU 
 ! 2020.10.01  Zhongwang Wei @ SYSU
 
 
 !===============================================================================
+! OLAM was originally developed at Duke University by Robert Walko, Martin Otte,
+! and David Medvigy in the project group headed by Roni Avissar.  Development
+! has continued by the same team working at other institutions (University of
+! Miami (rwalko@rsmas.miami.edu), the Environmental Protection Agency, and
+! Princeton University), with significant contributions from other people.
 
-! Portions of this software are copied or derived from the OLAM software
-! package.  The following copyright notice pertains to OLAM and its derivatives,
-! including this code:  
+! Portions of this software are copied or derived from the RAMS software
+! package.  The following copyright notice pertains to RAMS and its derivatives,
+! including OLAM:  
 
 !----------------------------------------------------------------------------
 ! Copyright (C) 1991-2006  ; All Rights Reserved ; Colorado State University;
@@ -46,6 +47,7 @@
 
 !===============================================================================
 program main
+    use netcdf
     use consts_coms
     use refine_vars
     use MOD_Get_Contain_Patch, only : Get_Contain_PatchId
@@ -59,7 +61,7 @@ program main
     character(pathlen) :: nlfile = 'mkgrd.mnl'
     character(LEN=256) :: finfolist
 
-    ! If run is sequential, default choice is to set io6 to standard output unit 6.
+    ! If run is  == ential, default choice is to set io6 to standard output unit 6.
 
     io6 = 6
 
@@ -334,7 +336,7 @@ subroutine gridinit()
     ! Horizontal grid setup
 
 
-    ! Now generate global grid
+    ! Now generate global atmospheric grid
 
     write(io6, '(/,a)') 'gridinit calling icosahedron'
     call icosahedron(nxp)  ! global spherical domain; calls 2 allocs
@@ -351,9 +353,9 @@ subroutine gridinit()
     call voronoi()
     call pcvt()
     write(io6, '(/,a)') 'gridinit after voronoi'
-    write(io6, '(a,i8)')   ' nma = ', nma
-    write(io6, '(a,i8)')   ' nua = ', nua
-    write(io6, '(a,i8)')   ' nwa = ', nwa
+    write(io6, '(a,i10)')   ' nma = ', nma
+    write(io6, '(a,i10)')   ' nua = ', nua
+    write(io6, '(a,i10)')   ' nwa = ', nwa
 
     ! Allocate remaining GRID FOOTPRINT arrays for full domain
 
@@ -406,11 +408,8 @@ subroutine gridinit()
     write(io6, '(/,a)') 'gridinit calling gridfile_write'
     call gridfile_write()
 
-    !write(io6,'(/,a)') 'calling sfcgile_write'
-    !call sfcgfile_write()
-
     write(io6, '(/,a)') 'gridinit completed'
-
+    !stop
 end subroutine gridinit
 
 
@@ -457,13 +456,15 @@ subroutine gridfile_write()
     
     allocate(dismm(nwa,7)); dismm = 0.
     allocate(disww(nma,3)); disww = 0.
+    
     Call Get_Dis(mp,wp,ngrmw,ngrwm,dismm,disww,nma,nwa)
 
     deallocate(mp)
     deallocate(wp)
+
     ! Execute the command
     call execute_command_line('mkdir -p '//trim(base_dir)//'/'//trim(expnme))
-    write(nxpc, '(I3.3)')NXP
+    write(nxpc, '(I4.4)')NXP
     ! Open gridfile
     flnm = trim(base_dir) // trim(EXPNME) // '/makegrid/gridfile/gridfile_NXP' // trim(nxpc) // '.nc4'
 
@@ -491,44 +492,39 @@ subroutine gridfile_write()
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(2), GLATW))
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(3), GLONM))
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(4), GLATM))
-
-    !allocate (iscr2(3, nma)) ; iscr2 = 0
-    !do im = 1, nma
-    !    iscr2(1:3, im) = itab_m(im)%iw(1:3)
-    !enddo
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(5), ngrmw))
-
-    !allocate (iscr2(7, nwa))
-
-    !do iw = 1, nwa
-    !    iscr2(1:7, iw) = itab_w(iw)%im(1:7)
-    !enddo
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(6), ngrwm))
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(7), disww))
     CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(8), dismm))
     CALL CHECK(NF90_CLOSE(ncID))
+
     deallocate(ngrmw)
     deallocate(ngrwm)
     deallocate(dismm)
     deallocate(disww)
 
-    if(refine == .false.)then
+    if(refine .eqv. .false.)then
        if(mode == 3)then
           call execute_command_line('cp '//trim(flnm)//' '//trim(base_dir)//trim(EXPNME)//'/makegrid/result/gridfile_NXP'//trim(nxpc)//'_sjx.nc4')
        else if(mode == 6)then
           call execute_command_line('cp '//trim(flnm)//' '//trim(base_dir)//trim(EXPNME)//'/makegrid/result/gridfile_NXP'//trim(nxpc)//'_lbx.nc4')
-       end if
-    end if
+       endif
+    endif
+    !stop
 
 end subroutine gridfile_write
+
+
 subroutine CHECK(STATUS)
     use netcdf
     INTEGER, intent (in) :: STATUS
-    if  (STATUS .NE. NF90_NOERR) then 
+    if  (STATUS .NE. NF90_NOERR) then ! nf_noerr=0 表示没有错误
         print *, NF90_STRERROR(STATUS)
         stop 'stopped'
     endif
 end subroutine CHECK
+
+
 subroutine voronoi()
 
     use mem_ijtabs, only : mloops, itab_m, itab_v, itab_w, alloc_itabs
@@ -1337,6 +1333,7 @@ subroutine grid_geometry_hex()
         b(2) = 1._r8 - sum(fo(1:npoly) * a(2, :))
         b(3) = - sum(fo(1:npoly) * a(3, :))
 
+        !print*,npoly, a, b, wsize, info
         call dgels('N', 3, npoly, 1, a, 3, b, 7, wsize, -1, info)
         lwork = nint(wsize(1)) + 1
 
@@ -1345,6 +1342,7 @@ subroutine grid_geometry_hex()
         endif
         if (.not. allocated(work)) allocate(work(lwork))
 
+        !print*,npoly,a,b,work,size(work), info
         call dgels('N', 3, npoly, 1, a, 3, b, 7, work, size(work), info)
 
         ! Vector b is now the correction to the coefficients fo

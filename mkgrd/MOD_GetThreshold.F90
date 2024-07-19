@@ -1,5 +1,5 @@
-! 1. Create the nlons_source*nlats_source slope and elevation threshold file
-! 2. Create a triangle mesh or polygon mesh threshold file
+! 1.制作nlons_source*nlats_source坡度、高程阈值文件
+! 2.制作三角形网格或多边形网格阈值文件
 
 module MOD_GetThreshold
 
@@ -11,20 +11,20 @@ module MOD_GetThreshold
 contains
   SUBROUTINE GetThreshold()
 
-   integer :: sjx_points               ! Number of triangular grids
-   integer :: maxid(1)                 ! Record the largest land type
-   integer :: num_all                  ! Each unstructured grid contains the total number of latitude and longitude grids
+   integer :: sjx_points               ! 三角形网格数量
+   integer :: maxid(1)                 ! 记录面积最大的土地类型
+   integer :: num_all                  ! 各非结构网格包含经纬度网格总数
    integer :: row,col,L
    integer :: i,j
-   !integer :: maxlc                    ! Land type maximum number,17 or 24
+   !integer :: maxlc                    ! 土地类型最大编号,17 or 24
    integer :: nmDimID,loDimID,laDimID,spDimID,upDimID
    integer :: iunit,ncid,ncvarid(10),varid,dimID_sjx,thDimID,dimID_lbx
 
-   real(r8),allocatable :: mp(:,:)     ! Center point and area of triangular grid
-   real(r8),allocatable :: mp_ii(:,:)  ! The triangular grid contains the latitude and longitude grid
-   real(r8),allocatable :: area(:)     ! Area of each land type in unstructured grid 
+   real(r8),allocatable :: mp(:,:)     ! 三角形网格中心点与面积
+   real(r8),allocatable :: mp_ii(:,:)  ! 三角形网格包含的经纬度网格
+   real(r8),allocatable :: area(:)     ! 非结构网格内各土地类型面积 
 
-   ! Threshold array
+   ! 阈值数组
    real(r8),allocatable :: fraction_mainarea(:,:),dem(:,:)
    real(r8),allocatable :: temp(:,:),slope_max(:,:)
    real(r8),allocatable :: slope_avg(:,:),lai(:,:)
@@ -35,10 +35,10 @@ contains
    real(r8),allocatable :: landtypes(:,:)
    integer,allocatable :: nlaa(:),n_landtypes(:)
    
-   integer,allocatable :: mp_id(:,:)   ! The triangular mesh contains the number of polygonal meshes and the starting position in mp_ii
+   integer,allocatable :: mp_id(:,:)   ! 三角形网格包含多边形网格数量与在mp_ii中的起始位置
    character(LEN=256) :: lndname,inputfile,outputfile,nxpc
 
-   write(nxpc, '(I3.3)') NXP
+   write(nxpc, '(I4.4)') NXP
    outputfile = trim(base_dir) // trim(EXPNME) // "/makegrid/threshold/threshold_" // trim(nxpc) // ".nc4"
    inputfile = trim(base_dir) // trim(EXPNME) // '/makegrid/gridfile/gridfile_NXP' // trim(nxpc) // '.nc4'
    print*,inputfile
@@ -169,7 +169,7 @@ contains
    print*,"tksatu_l1",minval(tksatu(:,:,1)),maxval(tksatu(:,:,1))
    print*,"tksatu_l2",minval(tksatu(:,:,2)),maxval(tksatu(:,:,2))
 
-   allocate(dem(nlons_source,nlats_source))             ! Longitude and latitude grid surface elevation
+   allocate(dem(nlons_source,nlats_source))             ! 经纬度网格地表高程
    dem = 0.
 
    lndname = trim(source_dir) // 'dem.nc'
@@ -181,8 +181,8 @@ contains
    print*,minval(dem),maxval(dem)
 
 
-   allocate(slope_max(nlons_source,nlats_source))          ! The maximum slope value in the eight neighborhood of the latitude and longitude grid
-   allocate(slope_avg(nlons_source,nlats_source))          ! The mean slope value in the eight neighborhood of the latitude and longitude grid
+   allocate(slope_max(nlons_source,nlats_source))          ! 经纬度网格八邻域上坡度最大值
+   allocate(slope_avg(nlons_source,nlats_source))          ! 经纬度网格八邻域上坡度均值
    slope_max=0.
    slope_avg=0.
    lndname = trim(source_dir) // 'slope_max.nc'
@@ -200,11 +200,11 @@ contains
    CALL CHECK(NF90_CLOSE(ncid))
    print*,minval(slope_avg),maxval(slope_avg)
 
-   allocate(nlaa(0:maxlc))                           ! Whether the unstructured grid contains an indication of the land type
-   allocate(area(0:maxlc))                         ! Area of each land type in unstructured grid
-   allocate(fraction_mainarea(sjx_points,2))   ! Number and proportion of main land types in unstructured grid
-   allocate(p_slope(sjx_points,3))           ! Maximum slope of latitude and longitude grid in unstructured grid
-   allocate(p_lai(sjx_points,3))               ! Mean value, maximum value and number of lai in unstructured grids
+   allocate(nlaa(0:maxlc))                           ! 非结构网格是否包含该种土地类型的标志
+   allocate(area(0:maxlc))                         ! 非结构网格内各土地类型面积
+   allocate(fraction_mainarea(sjx_points,2))   ! 非结构网格内主要土地类型编号与比例
+   allocate(p_slope(sjx_points,3))           ! 非结构网格内经纬度网格坡度最大值
+   allocate(p_lai(sjx_points,3))               ! 非结构网格内lai均值、最大值、网格数
    allocate(p_k_s(sjx_points,3,2))
    allocate(p_k_sl(sjx_points,3,2))
    allocate(p_tkdry(sjx_points,3,2))
@@ -435,7 +435,7 @@ end subroutine GetThreshold
 
    subroutine CHECK(STATUS)
       INTEGER, intent (in) :: STATUS
-      if  (STATUS .NE. NF90_NOERR) then 
+      if  (STATUS .NE. NF90_NOERR) then ! nf_noerr=0 表示没有错误
          print *, NF90_STRERROR(STATUS)
          stop 'stopped'
       endif

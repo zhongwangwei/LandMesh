@@ -1,9 +1,9 @@
-! --------------------------------------
-! Preliminary refinement of polygonal substructure mesh (single layer)
-! *** Initial data
-! ***_new Updated data
-! ***_f Final data
-! --------------------------------------
+!--------------------------------------
+! 多边形分结构网格初步细化(单层)
+! ***       初始数据
+! ***_new   更新后数据
+! ***_f     最终数据
+!--------------------------------------
 
 module MOD_refine_lbx
     USE consts_coms
@@ -18,85 +18,96 @@ Contains
         implicit none
         
         integer :: i, j, k, L, m, n, x, y, z
-        integer :: w1, w2, w3, w4, w5, w6, m1, m2, m3, m4      ! Serial number of triangles and polygons
-        integer :: row, col, error, ustr_points, edges
-        integer :: num_ref                                     ! Refine the number of triangles each time 
-        integer :: num_all                                     ! The unstructured grid contains the total number of structured grids
-        integer :: refed(1000)                                 ! Record the number of triangles that have been refined at each refinement
-        integer :: iter                                        ! Number of mesh refinement
-        integer :: sa_iter                                     ! The number of iterations of mesh quality adjustment
-        integer :: num_sjx, num_dbx                            ! The number of triangles and polygons after refinement
-        integer :: sjx_points, lbx_points                      ! Number of triangles and polygons (read from the original file)
-        integer :: nmp(1000), nwp(1000)                        ! Record the number of m and w points after each refinement
-        integer :: icl(3)                                      ! Record the number of m and w points after each refinement
-        !integer :: maxlc                                       ! Land type maximum number, 17 or 24
+        integer :: w1, w2, w3, w4, w5, w6, m1, m2, m3, m4      ! 三角形和多边形中心点序号
+        integer :: row, col, error,edges 
+        integer :: ustr_points                                 ! 非结构网格数量
+        integer :: num_ref                                     ! 每次细化三角形数 
+        integer :: num_all                                     ! 非结构网格包含结构网格总数
+        integer :: refed(1000)                                 ! 记录细化中每步（或每次迭代）细化的三角形数
+        integer :: iter                                        ! 网格细化次数
+        integer :: sa_iter                                     ! 网格质量调整迭代次数
+        integer :: num_sjx, num_dbx                            ! 细化后三角形、多边形数量
+        integer :: sjx_points, lbx_points                      ! 三角形与多边形数量(读取的原文件)
+        integer :: nmp(1000), nwp(1000)                        ! 记录每次细化后的m，w点数量
+        integer :: icl(3)                                      ! 判断三角形网格是否穿过180°经线
+        !integer :: maxlc                                       ! 土地类型最大编号，17 or 24
 
-        ! nc文件读写相关
+        ! nc文件读写相关参数
         integer :: ncid, varid(10), ncvarid(13), upDimID, iunit
         integer :: spDImID, lpDimID, twDimID, thDimID, seDimID, sxDimID, dimID_sjx, dimID_lbx
 
-        integer :: n_wbx, n_lbx, n_qbx                         ! Number of pentagons, hexagons and heptagons
+        integer :: n_wbx, n_lbx, n_qbx                         ! 五边形、六边形、七边形数量
 
-        real(r8), allocatable :: wp(:, :), mp(:, :)            ! Initial data of center point of triangular and polygon mesh
-        real(r8), allocatable :: mp_new(:, :), wp_new(:, :)    ! Update data at the center point of triangular and polygon mesh
-        real(r8), allocatable :: mp_f(:, :), wp_f(:, :)        ! Triangle, polygon mesh center point final data 
-        real(r8), allocatable :: mp_f_tmp(:, :), wp_f_tmp(:, :) 
-        real(r8), allocatable :: ref_lbx(:, :)                 ! Refinement of triangles that form polygons
-        real(r8), allocatable :: dismm(:,:),disww(:,:)
-
+        real(r8), allocatable :: wp(:, :), mp(:, :)            ! 三角形、多边形网格中心点初始数据
+        real(r8), allocatable :: mp_new(:, :), wp_new(:, :)    ! 三角形、多边形网格中心点更新数据
+        real(r8), allocatable :: mp_f(:, :), wp_f(:, :)        ! 三角形、多边形网格中心点最终数据 
+        real(r8), allocatable :: mp_f_tmp(:, :), wp_f_tmp(:, :)! mp_f/wp_f数组的缓存数据 
+        real(r8), allocatable :: ref_lbx(:, :)                 ! 构成多边形的三角形细化情况
+        real(r8), allocatable :: dismm(:,:),disww(:,:)         ! 相邻m/w点距离
+        
+        ! 阈值相关数组
         real(r8), allocatable :: f_mainarea(:, :), slope(:, :), lai(:, :)
         real(r8), allocatable :: k_s(:, :, :), k_sl(:, :, :),tkdry(:, :, :)
         real(r8), allocatable :: tksatf(:, :, :), tksatu(:, :, :)
 
-        ! Mesh quality adjustment related
-	     ! Extr_*** refers to the minimum Angle and maximum Angle of the grid
-	     ! Eavg_*** refers to the average of the minimum Angle and maximum Angle of the grid
-	     ! Savg_*** refers to the standard deviation between the Angle of the mesh and the Angle of the regular polygon
-	     ! less30 refers to the number of angles less than 30 degrees in a triangular grid        
-	     real(r8), allocatable :: less30(:), length(:, :, :), angle(:, :, :)
+        ! 网格质量调整相关
+        ! Extr_*** 指网格的最小角度与最大角度
+        ! Eavg_*** 指网格的最小角度与最大角度平均值
+        ! Savg_*** 指网格角度与正多边形角度的标准差
+        ! less30   指三角形网格中小于30度角的数量
+        real(r8), allocatable :: less30(:), length(:, :, :), angle(:, :, :)
         real(r8), allocatable :: Savg_sjx(:), Extr_sjx(:, :), Eavg_sjx(:, :)
         real(r8), allocatable :: angle_wbx(:, :, :), angle_lbx(:, :, :), angle_qbx(:, :, :)
         real(r8), allocatable :: Savg_wbx(:), Savg_lbx(:), Savg_qbx(:)
         real(r8), allocatable :: Eavg_wbx(:, :), Eavg_lbx(:, :), Eavg_qbx(:, :)
         real(r8), allocatable :: Extr_wbx(:, :), Extr_lbx(:, :), Extr_qbx(:, :)
 
-        real(r8), allocatable :: MoveDis(:, :)                 ! Record the adjustment distance of point w in the x and y directions
+        real(r8), allocatable :: MoveDis(:, :)                 ! 记录w点在x、y方向上的调整距离
 
-        real(r8) :: sjx(3, 2), newsjx(3, 2), dbx(7, 2), pi
-        real(r8) :: rx, ry, fra
-        integer, allocatable :: n_landtypes(:) 
+        real(r8) :: sjx(3, 2), newsjx(3, 2), dbx(7, 2)         ! 记录三角形/多边形顶点
+        real(r8) :: pi
+        real(r8) :: rx, ry, fra                 ! 网格质量调整相关
+        integer, allocatable :: n_landtypes(:)  ! 土地利用类型
 
-        integer, allocatable :: ref(:)          !  Initial refinement of triangular mesh
-	     integer, allocatable :: ref_l(:, :)     !  Polygon mesh refinement
-	     integer, allocatable :: ref_th(:, :)    !  Initial triangular mesh threshold refinement
-	     integer, allocatable :: ref_tr(:, :)    !  The final triangular mesh threshold refinement
-	     integer, allocatable :: ref_pl(:, :)    !  Record what thresholds the polygon is refined by
+        integer, allocatable :: ref(:)          ! 三角形网格初始细化情况
+        integer, allocatable :: ref_l(:, :)     ! 多边形网格细化情况
+        integer, allocatable :: ref_th(:, :)    ! 初始三角形网格阈值细化情况
+        integer, allocatable :: ref_tr(:, :)    ! 最终三角形网格阈值细化情况
+        integer, allocatable :: ref_pl(:, :)    ! 记录多边形是因何种阈值细化
 
-	     integer, allocatable :: ngrmw(:, :), ngrwm(:, :)          !  Index of w/m points adjacent to m/w points (before refinement)
-	     integer, allocatable :: ngrmw_new(:, :), ngrwm_new(:, :)  !  Index of w/m points adjacent to m/w points (after refinement)
-	     integer, allocatable :: ngrmw_f(:, :), ngrwm_f(:, :)      !  Index of w/m points adjacent to m/w points (final)
+        integer, allocatable :: ngrmw(:, :), ngrwm(:, :)          ! m/w点相邻的w/m点索引(细化前)
+        integer, allocatable :: ngrmw_new(:, :), ngrwm_new(:, :)  ! m/w点相邻的w/m点索引(细化后)
+        integer, allocatable :: ngrmw_f(:, :), ngrwm_f(:, :)      ! m/w点相邻的w/m点索引(最终)
         integer, allocatable :: ngrmw_f_tmp(:, :), ngrwm_f_tmp(:, :)
-        integer, allocatable :: ngrmm(:, :)        !  Index of m points adjacent to m points (before thinning)
-        integer, allocatable :: ngrmm_new(:, :)    !  Index of m points adjacent to m points (after refinement)
-        integer, allocatable :: mrl(:)             !  Triangular mesh refinement degree (before refinement)
-        integer, allocatable :: mrl_new(:)         !  Triangular mesh refinement degree (after refinement)
-        integer, allocatable :: mrl_f(:)           !  Triangular mesh refinement (final)
-        integer, allocatable :: ngr_mrl(:, :)      !  mrl of adjacent triangular mesh points of triangular mesh (before thinning)
-        integer, allocatable :: ngr_mrl_new(:, :)  !  mrl of adjacent triangular mesh points of triangular mesh (after refinement)
-        integer, allocatable :: mp_ref(:)          !  Record the index of the triangle being refined
+        integer, allocatable :: ngrmm(:, :)        ! m点相邻的m点索引(细化前)
+        integer, allocatable :: ngrmm_new(:, :)    ! m点相邻的m点索引(细化后)
+        integer, allocatable :: mrl(:)             ! 三角形网格细化程度(细化前)
+        integer, allocatable :: mrl_new(:)         ! 三角形网格细化程度(细化后) 
+        integer, allocatable :: mrl_f(:)           ! 三角形网格细化程度(最终)
+        integer, allocatable :: ngr_mrl(:, :)      ! 三角形网格的相邻三角形网格点的mrl(细化前)
+        integer, allocatable :: ngr_mrl_new(:, :)  ! 三角形网格的相邻三角形网格点的mrl(细化后)
+        integer, allocatable :: mp_ref(:)          ! 记录被细化三角形的索引
+
         character(LEN = 256) :: lndname, nxpc
 
-	logical :: isexist                !  Determine whether there are repeated w points after refinement
+        logical :: isexist                ! 判断细化后是否存在重复w点
+        
+        ! 防止细化交汇带出现冲突，一分为四
+        logical :: iterA                  ! 当一轮迭代中迭代B与迭代C通过且无细化，迭代A通过
+        logical :: iterB                  ! 从三角形网格进行判断
+        logical :: iterC                  ! 从多边形网格进行判断
+        logical :: End_SpringAjustment    ! 判断网格质量调整是否结束
 
-	! To prevent the collision of the intersection belt, one is divided into four
-	logical :: iterA                  !  When iteration B and iteration C pass at the same time, iteration A passes
-	logical :: iterB                  !  Judging from the triangular grid
-	logical :: iterC                  !  Judging from the polygonal mesh
-	logical :: End_SpringAjustment    !  Determine whether the mesh quality adjustment is complete
-        logical,allocatable :: IsInRfArea(:) ! Determine whether the triangular mesh is in the refinement area 
+        logical,allocatable :: IsInRfArea(:) ! 判断三角形网格是否位于细化区域内 
+        
+        ! 便于函数调用的缓存数组
         real(r8) :: tmpa(2),tmpb(2),tmpc(2),tmp_angle(3),tmp_length(3),tmp_angle7(7)
-        character(LEN = 20) :: p_name(6) = (/"GLONW", "GLATW", "GLONM", "GLATM", "itab_w%im", "itab_m%iw"/)
+        
+        ! nc文件读取参数名
+        !character(LEN = 20) :: p_name(6) = (/"GLONW", "GLATW", "GLONM", "GLATM", "itab_w%im", "itab_m%iw"/)
+        character(LEN = 20),dimension(6) :: p_name
 
+        p_name = [character(len=20) :: "GLONW", "GLATW", "GLONM", "GLATM", "itab_w%im", "itab_m%iw"]
         pi = 3.1415926535
 
         iterA = .false.
@@ -108,8 +119,9 @@ Contains
         !-------------------------------------------
         print*, "start to read unstructure mesh data"
         print*, ""
-
-        write(nxpc, '(I3.3)') NXP
+         
+        ! 读取未细化初始网格数据
+        write(nxpc, '(I4.4)') NXP
         lndname = trim(base_dir) // trim(EXPNME) // '/makegrid/gridfile/gridfile_NXP' // trim(nxpc) // '.nc4'
         print*,lndname
         CALL CHECK(NF90_OPEN(trim(lndname), nf90_nowrite, ncid))
@@ -127,14 +139,15 @@ Contains
         print*, "sjx_points = ", sjx_points
         print*, "lbx_points = ", lbx_points
 
-        allocate(wp(lbx_points, 2))            !  Initial data for center point of polygon mesh Initial data for center point of Polygon mesh
-	allocate(wp_new(lbx_points * 4, 2))    !  Update data at center point of polygon mesh Update data at center point of Polygon mesh
-	allocate(mp(sjx_points, 2))            !  Initial data at the center point of the triangular grid Initial data at the center point of the triangular grid
-	allocate(mp_new(sjx_points * 4, 2))    !  The center point of the triangular grid updates the data The center point of the triangular grid updates the data
-	allocate(ngrwm(7, lbx_points))         !  wp initial index table of adjacent mp points wp Initial index table of adjacent mp points
-	allocate(ngrwm_new(7, lbx_points * 4)) !  wp's adjacent mp points update the index table wp's adjacent mp points update the index table
-	allocate(ngrmw(3, sjx_points))         !  The initial index table of adjacent wp points of mp The initial index table of adjacent wp points of mp
-	allocate(ngrmw_new(3, sjx_points * 4)) !  The adjacent wp points of mp update the index table The adjacent wp points of mp update the index table
+        allocate(wp(lbx_points, 2))            ! Initial data for center point of polygon mesh (多边形网格中心点初始数据)
+        allocate(wp_new(lbx_points * 4, 2))    ! Update data at center point of polygon mesh (多边形网格中心点更新数据)
+        allocate(mp(sjx_points, 2))            ! Initial data at the center point of the triangular grid (三角形网格中心点初始数据)
+        allocate(mp_new(sjx_points * 4, 2))    ! The center point of the triangular grid updates the data (三角形网格中心点更新数据)
+        allocate(ngrwm(7, lbx_points))         ! wp initial index table of adjacent mp points (wp的相邻mp点初始索引表)
+        allocate(ngrwm_new(7, lbx_points * 4)) ! wp's adjacent mp points update the index table (wp的相邻mp点更新索引表)
+        allocate(ngrmw(3, sjx_points))         ! The initial index table of adjacent wp points of mp (mp的相邻wp点初始索引表)
+        allocate(ngrmw_new(3, sjx_points * 4)) ! The adjacent wp points of mp update the index table (mp的相邻wp点更新索引表)
+
         wp = 0.
         mp = 0.
         wp_new = 0
@@ -157,12 +170,13 @@ Contains
         print*, "In total, triangular mesh number: ", sjx_points, "polygon mesh number: ", lbx_points
         print*, ""
 
-        allocate(mrl(sjx_points))                  !  Triangle mesh refinement degree Triangle mesh refinement degree
-	allocate(mrl_new(sjx_points * 4))          !  Updated mrl data Updated MRL data
-	allocate(ngr_mrl(3, sjx_points))           !  mrl of adjacent triangular mesh points of a triangular mesh mrl of adjacent triangular mesh points of a triangular mesh
-	allocate(ngr_mrl_new(3, sjx_points * 4))   !  Updated ngr_mrl data (Updated data)
-	allocate(ngrmm(3, sjx_points))             !  mp adjacent mp initial index table mp adjacent mp Initial Index Table
-	allocate(ngrmm_new(3, sjx_points * 4))     !  Updated ngrmm data Updated NGRMM Data
+        allocate(mrl(sjx_points))                  ! Triangle mesh refinement degree (三角形网格细化程度/方式)
+        allocate(mrl_new(sjx_points * 4))          ! Updated mrl data (更新后数据)
+        allocate(ngr_mrl(3, sjx_points))           ! mrl of adjacent triangular mesh points of a triangular mesh (三角形网格的相邻三角形网格的mrl)
+        allocate(ngr_mrl_new(3, sjx_points * 4))   ! Updated ngr_mrl data (更新后数据)
+        allocate(ngrmm(3, sjx_points))             ! mp adjacent mp initial index table (m点相邻m点的初始索引表)
+        allocate(ngrmm_new(3, sjx_points * 4))     ! Updated ngrmm data (更新后数据)
+
         mrl = 1
         mrl_new = 1
         ngr_mrl = 1
@@ -170,6 +184,7 @@ Contains
         ngrmm = 1
         ngrmm_new = 1
 
+        ! 规定180°经线圈上的经度为180°
         do i = 1, sjx_points, 1
             if(mp(i, 1) == -180.)then
                 mp(i, 1) = 180.
@@ -186,17 +201,17 @@ Contains
         ! ngrmm calculation
         !----------------------------------------------------------------
         do i = 1, sjx_points, 1
-            if(ngrmw(3, i) == 1)then
+            if(ngrmw(3, i) == 1)then ! 三角形不存在，mrl设置为0
                 mrl(i) = 0
             end if
         end do
 
         do i = 1, sjx_points, 1
             do j = 1, sjx_points, 1
-                if(i /= j)then
+                if(i /= j)then   ! 若它们不是同一个m点
                     error = IsNgrmm(ngrmw(1:3, i), ngrmw(1:3, j))
-                    if(error /= 0)then
-                        ngrmm(error, i) = j
+                    if(error /= 0)then    ! error表示两个三角形公共边是i的第几个w顶点的对边
+                        ngrmm(error, i) = j  ! i号m点的第error个w顶点的对边的另一个相邻m点索引为j
                     end if
                 end if
             end do
@@ -213,6 +228,9 @@ Contains
         !CALL CHECK(NF90_PUT_VAR(ncID, ncVarID(1), ngrmm))
         !CALL CHECK(NF90_CLOSE(ncID))
 
+        ! 更新相邻三角形的mrl情况（暂时只有0或1）
+        ! 0表示三角形不存在
+        ! 1表示是未细化的初始三角形
         do i = 1, sjx_points, 1
             do j = 1, 3, 1
                 if(ngrmm(j, i) /= 1)then
@@ -223,7 +241,9 @@ Contains
             end do
         end do
 
-        ! Allocate threshold dependent array memory (Allocate threshold dependent array memory)
+        ! Allocate threshold dependent array memory (分配阈值相关数组内存)
+        ! 第二维记录均值与标准差
+        ! 第三维记录土壤的第一层与第二层
         allocate(n_landtypes(sjx_points))
         allocate(f_mainarea(sjx_points, 2))
         allocate(slope(sjx_points, 2))
@@ -244,7 +264,7 @@ Contains
         tksatu = 0.
 
         !--------------------------------------------------
-        ! Reading threshold data (latitude and longitude grid) (Reading threshold data (latitude and longitude grid))
+        ! Reading threshold data (latitude and longitude grid) (读取初始网格的阈值数据（经纬度网格）)
         !--------------------------------------------------
         lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/threshold/threshold_" // trim(nxpc) // ".nc4"
         print*, lndname
@@ -270,17 +290,18 @@ Contains
         CALL CHECK(NF90_GET_VAR(ncid, varid(9), tksatu))
         CALL CHECK(NF90_CLOSE(ncid))
 
-        allocate(ref(sjx_points))             !  Initial refinement of triangular mesh Initial refinement of triangular mesh
-	allocate(ref_l(lbx_points, 7))        !  Polygon mesh refinement
-	allocate(ref_lbx(lbx_points, 8))
-	allocate(ref_th(sjx_points, 16))      !  Initial triangular mesh threshold refinement Initial triangular mesh threshold refinement
-	allocate(ref_tr(sjx_points * 4, 16))  !  The final triangular mesh threshold refinement The final triangular mesh threshold refinement        
-	ref = 0
+        allocate(ref(sjx_points))             ! 记录三角形网格是否需要细化
+        allocate(ref_l(lbx_points, 7))        ! Polygon mesh refinement (多边形网格细化情况)
+        allocate(ref_lbx(lbx_points, 8))      ! 用于细化时记录信息
+        allocate(ref_th(sjx_points, 16))      ! 记录三角形网格因何种阈值细化
+        allocate(ref_tr(sjx_points * 4, 16))  ! The final triangular mesh threshold refinement (最终三角形网格阈值细化情况)
+        ref = 0
         ref_l = 0
         ref_lbx = 0.
         ref_th = 0
         ref_tr = 0
 
+        ! 判断哪些三角形网格位于细化区域内
         allocate(IsInRfArea(sjx_points))
         IsInRfArea = .false.
         CALL IsInRefineArea(IsInRfArea,sjx_points,lbx_points,ngrmw,wp)
@@ -292,107 +313,110 @@ Contains
         !end if
 
         !--------------------------------------------------
-        ! 1.1 Used to record triangles that require preliminary refinement (Records require preliminary refinement of triangles)
+        ! 1.1 Used to record triangles that  == ire preliminary refinement （记录需要初步细化的三角形）
         !--------------------------------------------------
         do i = 1, sjx_points, 1
             !if((wp(ngrmw(i,1),2)>85.).or.(wp(ngrmw(i,2),2)>85.).or.(wp(ngrmw(i,3),2)>85.))then
             !   cycle
             !end if
-            if(IsInRfArea(i) == .false.)then
+            if(IsInRfArea(i) .eqv. .false.)then ! 当三角形网格不位于细化区域内
                cycle
             end if
             
+            ! 当主导土地类型为海洋
             if((f_mainarea(i, 1) == 0.).or.(f_mainarea(i, 1) == maxlc))then
                 cycle
             end if
 
-            if (refine_num_landtypes == .True. .and. n_landtypes(i)>th_num_landtypes) then
+            if (refine_num_landtypes .eqv. .true. .and. n_landtypes(i)>th_num_landtypes) then
                 ref(i) = 1
                 ref_th(i, 1) = 1
             end if
 
-            if (refine_area_mainland == .True. .and. f_mainarea(i, 2) < th_area_mainland) then
+            if (refine_area_mainland .eqv. .true. .and. f_mainarea(i, 2) < th_area_mainland) then
                 ref(i) = 1
                 ref_th(i, 2) = 1
             end if
 
-            if (refine_lai_m == .True. .and. lai(i, 1) > th_lai_m) then
+            if (refine_lai_m .eqv. .true. .and. lai(i, 1) > th_lai_m) then
                 ref(i) = 1
                 ref_th(i, 3) = 1
             end if
 
-            if (refine_lai_s == .True. .and. lai(i, 2) > th_lai_s) then
+            if (refine_lai_s .eqv. .true. .and. lai(i, 2) > th_lai_s) then
                 ref(i) = 1
                 ref_th(i, 4) = 1
             end if
 
-            if (refine_slope_m == .True. .and. slope(i, 1) > th_slope_m) then
+            if (refine_slope_m .eqv. .true. .and. slope(i, 1) > th_slope_m) then
                 ref(i) = 1
                 ref_th(i, 5) = 1
             end if
 
-            if (refine_slope_s == .True. .and. slope(i, 2) > th_slope_s) then
+            if (refine_slope_s .eqv. .true. .and. slope(i, 2) > th_slope_s) then
                 ref(i) = 1
                 ref_th(i, 6) = 1
             end if
 
-            if (refine_k_s_m == .True. .and. ((k_s(i, 1, 1) > th_k_s_m).or.(k_s(i, 1, 2) > th_k_s_m))) then
+            if (refine_k_s_m .eqv. .true. .and. ((k_s(i, 1, 1) > th_k_s_m).or.(k_s(i, 1, 2) > th_k_s_m))) then
                 ref(i) = 1
                 ref_th(i, 7) = 1
             end if
 
-            if (refine_k_s_s == .True. .and. ((k_s(i, 2, 1) > th_k_s_s).or.(k_s(i, 2, 2) > th_k_s_s))) then
+            if (refine_k_s_s .eqv. .true. .and. ((k_s(i, 2, 1) > th_k_s_s).or.(k_s(i, 2, 2) > th_k_s_s))) then
                 ref(i) = 1
                 ref_th(i, 8) = 1
             end if
 
-            if (refine_k_solids_m == .True. .and. ((k_sl(i, 1, 1) > th_k_solids_m).or.(k_sl(i, 1, 2) > th_k_solids_m))) then
+            if (refine_k_solids_m .eqv. .true. .and. ((k_sl(i, 1, 1) > th_k_solids_m).or.(k_sl(i, 1, 2) > th_k_solids_m))) then
                 ref(i) = 1
                 ref_th(i, 9) = 1
             end if
 
-            if (refine_k_solids_s == .True. .and. ((k_sl(i, 2, 1) > th_k_solids_s).or.(k_sl(i, 2, 2) > th_k_solids_s))) then
+            if (refine_k_solids_s .eqv. .true. .and. ((k_sl(i, 2, 1) > th_k_solids_s).or.(k_sl(i, 2, 2) > th_k_solids_s))) then
                 ref(i) = 1
                 ref_th(i, 10) = 1
             end if
 
-            if (refine_tkdry_m == .True. .and. ((tkdry(i, 1, 1) > th_tkdry_m).or.(tkdry(i, 1, 2) > th_tkdry_m))) then
+            if (refine_tkdry_m .eqv. .true. .and. ((tkdry(i, 1, 1) > th_tkdry_m).or.(tkdry(i, 1, 2) > th_tkdry_m))) then
                 ref(i) = 1
                 ref_th(i, 11) = 1
             end if
 
-            if (refine_tkdry_s == .True. .and. ((tkdry(i, 2, 1) > th_tkdry_s).or.(tkdry(i, 2, 2) > th_tkdry_s))) then
+            if (refine_tkdry_s .eqv. .true. .and. ((tkdry(i, 2, 1) > th_tkdry_s).or.(tkdry(i, 2, 2) > th_tkdry_s))) then
                 ref(i) = 1
                 ref_th(i, 12) = 1
             end if
 
-            if (refine_tksatf_m == .True. .and. ((tksatf(i, 1, 1) > th_tksatf_m).or.(tksatf(i, 1, 2) > th_tksatf_m))) then
+            if (refine_tksatf_m .eqv. .true. .and. ((tksatf(i, 1, 1) > th_tksatf_m).or.(tksatf(i, 1, 2) > th_tksatf_m))) then
                 ref(i) = 1
                 ref_th(i, 13) = 1
             end if
 
-            if (refine_tksatf_s == .True. .and. ((tksatf(i, 2, 1) > th_tksatf_s).or.(tksatf(i, 2, 2) > th_tksatf_s))) then
+            if (refine_tksatf_s .eqv. .true. .and. ((tksatf(i, 2, 1) > th_tksatf_s).or.(tksatf(i, 2, 2) > th_tksatf_s))) then
                 ref(i) = 1
                 ref_th(i, 14) = 1
             end if
 
-            if (refine_tksatu_m == .True. .and. ((tksatu(i, 1, 1) > th_tksatu_m).or.(tksatu(i, 1, 2) > th_tksatu_m))) then
+            if (refine_tksatu_m .eqv. .true. .and. ((tksatu(i, 1, 1) > th_tksatu_m).or.(tksatu(i, 1, 2) > th_tksatu_m))) then
                 ref(i) = 1
                 ref_th(i, 15) = 1
             end if
 
-            if (refine_tksatu_s == .True. .and. ((tksatu(i, 2, 1) > th_tksatu_s).or.(tksatu(i, 2, 2) > th_tksatu_s))) then
+            if (refine_tksatu_s .eqv. .true. .and. ((tksatu(i, 2, 1) > th_tksatu_s).or.(tksatu(i, 2, 2) > th_tksatu_s))) then
                 ref(i) = 1
                 ref_th(i, 16) = 1
             end if
 
         end do
 
-        iter = 1                                 ! Number of Iterations (Number of iterations)
-        num_ref = INT(sum(ref))                  ! Number of triangles per refinement (Refine the number of triangles each time)
-        nmp(1) = sjx_points + 4 * num_ref        ! Record the number of triangles after each iteration (Record the number of triangles after each iteration)
-        nwp(1) = lbx_points + 3 * num_ref        ! Record the number of polygons after each iteration (Record the number of polygons after each iteration)
+        iter = 1                                 ! 本次细化中的迭代次数
+        num_ref = INT(sum(ref))                  ! 需要细化的三角形数
+        nmp(1) = sjx_points + 4 * num_ref        ! 记录每次迭代后三角形数
+        nwp(1) = lbx_points + 3 * num_ref        ! 记录每次迭代后多边形数
+        ! 每细化（一分为四）一个三角形，增加4个m点和3个w点
 
+        ! 将初始数据导入内存更大的新数组中
         mrl_new(1:sjx_points) = mrl
         ngr_mrl_new(1:3, 1:sjx_points) = ngr_mrl
         mp_new(1:sjx_points, 1:2) = mp
@@ -401,6 +425,7 @@ Contains
         ngrmm_new(1:3, 1:sjx_points) = ngrmm(1:3, 1:sjx_points)
         ngrwm_new(1:7, 1:lbx_points) = ngrwm(1:7, 1:lbx_points)
 
+        ! 清除阈值数组内存
         deallocate(n_landtypes)
         deallocate(f_mainarea)
         deallocate(slope)
@@ -412,24 +437,28 @@ Contains
         deallocate(tksatu)
 
         !--------------------------------------------------
-        ! 1.2 Preliminary refinement (one into four) 【 Preliminary refinement (divided into four) 】
+        ! 1.2 Preliminary refinement (one into four) 【初步细化（一分为四）】
         !--------------------------------------------------
-        print*, "Start to refine (Start preliminary refinement)"
+        print*, "Start to refine (开始初步细化)"
         print*, "iter =", iter, "num =", num_ref
         refed = 0
         do i = 1, sjx_points, 1
-            if(ref(i) == 1)then
+            if(ref(i) == 1)then ! 若三角形需要细化
                 icl = 0
                 sjx = 0.
                 newsjx = 0.
+
+                ! 读取三角形顶点经纬度
                 sjx(1, 1:2) = wp(ngrmw(1, i), 1:2)
                 sjx(2, 1:2) = wp(ngrmw(2, i), 1:2)
                 sjx(3, 1:2) = wp(ngrmw(3, i), 1:2)
 
+                ! 判断是否越过180°经线圈
                 icl(1) = IsCrossLine(sjx(2, 1), sjx(3, 1))
                 icl(2) = IsCrossLine(sjx(1, 1), sjx(3, 1))
                 icl(3) = IsCrossLine(sjx(1, 1), sjx(2, 1))
 
+                ! 若越线，则将小于0°经度加上360°
                 if(INT(sum(icl)) > 0)then
                     do j = 1, 3, 1
                         if(sjx(j, 1) < 0.)then
@@ -438,10 +467,12 @@ Contains
                     end do
                 end if
 
+                ! 计算新生成的中间小三角形顶点（原三角形中点）
                 newsjx(1, 1:2) = (sjx(2, 1:2) + sjx(3, 1:2)) / 2.
                 newsjx(2, 1:2) = (sjx(1, 1:2) + sjx(3, 1:2)) / 2.
                 newsjx(3, 1:2) = (sjx(1, 1:2) + sjx(2, 1:2)) / 2.
 
+                ! 为新生成的m点与w点编序号
                 m1 = sjx_points + refed(1) * 4 + 1
                 m2 = sjx_points + refed(1) * 4 + 2
                 m3 = sjx_points + refed(1) * 4 + 3
@@ -451,6 +482,7 @@ Contains
                 w2 = lbx_points + refed(1) * 3 + 2
                 w3 = lbx_points + refed(1) * 3 + 3
 
+                ! 计算新生成的m点和w点经纬度
                 mp_new(m1, 1:2) = (sjx(1, :) + newsjx(2, :) + newsjx(3, :)) / 3.
                 mp_new(m2, 1:2) = (sjx(2, :) + newsjx(1, :) + newsjx(3, :)) / 3.
                 mp_new(m3, 1:2) = (sjx(3, :) + newsjx(1, :) + newsjx(2, :)) / 3.
@@ -460,6 +492,7 @@ Contains
                 wp_new(w2, 1:2) = newsjx(2, 1:2)
                 wp_new(w3, 1:2) = newsjx(3, 1:2)
 
+                ! 更新原三角形与新三角形的ngrmm,ngrmw索引
                 do k = 1, 3, 1
                     ngrmm_new(k, i) = 1
                     ngrmw_new(k, i) = 1
@@ -480,6 +513,7 @@ Contains
                 ngrmm_new(2, m4) = m2
                 ngrmm_new(3, m4) = m3
 
+                ! 将新生成m点、w点大于180°的经度减小360°
                 if(INT(sum(icl)) > 0)then
                     do k = 1, 4, 1
                         call CheckLon(mp_new(sjx_points + refed(1) * 4 + k, 1))
@@ -487,9 +521,11 @@ Contains
                     end do
                 end if
 
-                mrl_new(i) = 4 ! Indicates that the triangular grid is evenly divided into four parts (Indicates that the triangular grid is evenly divided into four parts)
+                mrl_new(i) = 4 ! mrl==4 三角形网格被平均分为四份
+                ! 将由被平均分为四份生成的小三角形mrl也记录为4
                 mrl_new(sjx_points + refed(iter) * 4 + 1:sjx_points + refed(1) * 4 + 4) = 4
 
+                ! 根据更新的相邻m点关系更新相邻mrl关系
                 do j = 1, 3, 1
                     do k = 1, 3, 1
                         if(ngrmm(k, ngrmm(j, i)) == i)then
@@ -499,10 +535,20 @@ Contains
                 end do
                 ngr_mrl_new(1:3, m4) = 4
 
+                !do j = 1,7,1
+                !   do k = 1,3,1
+                !      if(ngrwm_new(ngrmw(i,k),j) == i)then
+                !         ngrwm_new(ngrmw(i,k),j) = sjx_points+refed(iter)*4+k
+                !      end if
+                !   end do
+                !end do
+
+                ! 记录w点相邻三角形有被细化情况发生
                 ref_lbx(8, ngrmw_new(1, i)) = 1
                 ref_lbx(8, ngrmw_new(2, i)) = 1
                 ref_lbx(8, ngrmw_new(3, i)) = 1
 
+                ! 记录小三角形是因何种阈值被细化产生的
                 do j = 1, 16, 1
                     if(ref_th(i, j) == 1)then
                         ref_tr(m1, j) = 1
@@ -511,14 +557,15 @@ Contains
                     end if
                 end do
 
+                ! 第一次细化的操作数（或迭代次数）加一
                 refed(1) = refed(1) + 1
             end if
         end do
         print*, "itered_num =", refed(1)
-        print*, "Refining step 1 is complete (Refining step 1 completed)"
+        print*, "Refining step 1 is complete (细化第一步完成)"
 
         !--------------------------------------------------
-        ! 1.3 Store the initial grid data and the new grid data after preliminary refinement
+        ! 1.3 储存初始网格数据和初步细化后新网格数据
         !--------------------------------------------------
         lndname = trim(base_dir) // trim(EXPNME)  // "/makegrid/tmp/gridfile_NXP" // trim(nxpc) // "_01_ori.nc4"
         print*, lndname
@@ -569,36 +616,40 @@ Contains
         !stop
 
         !--------------------------------------------------
-        ! 2.1 Perform iterations (to prevent conflicts in the refinement intersection belt, one is divided into four)
+        ! 2.1 进行迭代（防止细化交汇带出现冲突，一分为四）
         !--------------------------------------------------
         print*, "iterA start"
-        do while(iterA == .false.)
+        do while(iterA .eqv. .false.) ! 当iterA为true时，该步骤完成
 
-            iterA = .true.    ! Determine whether iteration B and iteration C meet the conditions
-            iterB = .false.   ! Judging from the triangular grid
-            iterC = .false.   ! Judging from the polygonal mesh
+            iterA = .true.    ! 判断迭代B和迭代C是否都已满足条件
+            iterB = .false.   ! 从三角形网格进行判断
+            iterC = .false.   ! 从多边形网格进行判断
 
             print*, "iterB start"
-            do while(iterB == .false.)
+            do while(iterB .eqv. .false.)
 
-                ref = 0
+                ref = 0 ! 记录三角形是否需要被细化，初始化
 
-                ! When an unrefined triangle has two or more refined adjacent triangles, the triangle is refined
+                ! 当一个未细化三角形的相邻三角形有两个或两个以上已经被细化时，细化该三角形
                 do i = 1, sjx_points, 1
-                    if(mrl_new(i) == 1)then
+                    if(mrl_new(i) == 1)then  ! 用相邻三角形mrl的和来判断相邻三角形细化数量
                         if((sum(ngr_mrl_new(1:3, i)) == 12.).or.(sum(ngr_mrl_new(1:3, i)) == 9.))then
                             ref(i) = 1
                         end if
                     end if
                 end do
 
+                ! 需要细化的三角形总数
                 num_ref = INT(sum(ref))
 
+                ! 当产生新的细化三角形时，iterA不通过
                 if(num_ref == 0)then
                     iterB = .true.
                 else
                     iterA = .false.
                     iter = iter + 1
+
+                    ! 将记录的这些三角形一分为四（类似以上操作）
                     nmp(iter) = nmp(iter - 1) + 4 * num_ref
                     nwp(iter) = nwp(iter - 1) + 3 * num_ref
 
@@ -702,34 +753,37 @@ Contains
             print*, "iterB end"
 
             print*, "iterC start"
-            do while(iterC == .false.)
+            do while(iterC .eqv. .false.)
 
                 ref = 0
 
                 do i = 1, lbx_points, 1
 
-                    edges = 0    
+                    edges = 0      ! 多边形网格边数
 
-                    do j = 1, 7, 1   ! Calculate the number of sides of a polygon made of unrefined triangles
+                    do j = 1, 7, 1   ! 计算未细化三角形构成的多边形的边数
                         if(ngrwm(j, i) /= 1)then
                             m1 = ngrwm(j, i)
-                            if(sum(ngr_mrl_new(:, m1)) == 6.)then
-                                ref_lbx(i, j) = 1  ! Indicates that the triangles that make up part of the polygon have been refined
+                            if(sum(ngr_mrl_new(:, m1)) == 6.)then ! 1+1+4，即相邻一个细化两个未细化（图a）
+                                ref_lbx(i, j) = 1  ! 表示i号w点的第j个相邻三角形将要被细化（一分为二）（图e）
                             end if
-                            edges = edges + 1
+                            edges = edges + 1 ! 记录多边形边数
                         end if
                     end do
 
-                    if(ref_lbx(i, 8) == 0)then     ! The triangles that make up the polygon have not been refined
-                        if(edges == 5)then        
+                    if(ref_lbx(i, 8) == 0)then     ! 表示i号w点的相邻三角形均未被细化
+                        if(edges == 5)then         ! 五边形(图b)
                             do j = 1, 5, 1
                                 m1 = ngrwm(j, i)
                                 m2 = ngrwm(j + 1, i)
                                 if(j == 5)then
                                     m2 = ngrwm(1, i)
-                                end if
+                                end if ! m1，m2为多边形相邻顶点
+                                ! m1,m2均为1+1+4结构，表示这两个三角形都有两个相邻三角形未被细化
+                                ! 因此它们组成弱凹(图c)
                                 if((sum(ngr_mrl_new(:, m1)) == 6).and.(sum(ngr_mrl_new(:, m2)) == 6.))then
-                                    ref_lbx(i, j) = 0.5
+                                    ref_lbx(i, j) = 0.5 ! 将弱凹三角形中心点记录
+                                    ! 两个0.5合计1，表示要增加1条边（图d）
                                     if(j < 5)then
                                         ref_lbx(i, j + 1) = 0.5
                                     else
@@ -737,7 +791,7 @@ Contains
                                     end if
                                 end if
                             end do
-                        else if(edges == 6)then   
+                        else if(edges == 6)then    ! 六边形（和上述五边形情况类似）
                             do j = 1, 6, 1
                                 m1 = ngrwm(j, i)
                                 m2 = ngrwm(j + 1, i)
@@ -755,13 +809,15 @@ Contains
                             end do
                         end if
 
-                        if((edges == 5).and.(sum(ref_lbx(i, 1:7)) > 2.))then
+                        ! sum(ref_lbx(i, 1:7))表示要增加的边数
+                        ! 当增加后原边数+增加边数大于7，则细化整个多边形
+                        if((edges == 5).and.(sum(ref_lbx(i, 1:7)) > 2.))then ! 5+2=7
                             do j = 1, 7, 1
                                 if((ref_lbx(i, j) /= 0).and.(mrl_new(ngrwm(j, i)) == 1))then
                                     ref(ngrwm(j, i)) = 1
                                 end if
                             end do
-                        else if((edges == 6).and.(sum(ref_lbx(i, 1:7)) > 1.))then
+                        else if((edges == 6).and.(sum(ref_lbx(i, 1:7)) > 1.))then ! 6+1=7
                             do j = 1, 7, 1
                                 if((ref_lbx(i, j) /= 0).and.(mrl_new(ngrwm(j, i)) == 1))then
                                     ref(ngrwm(j, i)) = 1
@@ -769,9 +825,11 @@ Contains
                             end do
                         end if
 
-                    else if(ref_lbx(i, 8) /= 0)then
+                    else if(ref_lbx(i, 8) /= 0)then ! 当i点相邻三角形存在细化
                         if(edges == 5)then
-                            if(sum(mrl_new(ngrwm(1:5, i))) > 10)then
+                            ! 当i点相邻三角形至少有两个被细化 1+1+1+4+4
+                            ! 则细化i点所有相邻三角形（这里有问题）
+                            if(sum(mrl_new(ngrwm(1:5, i))) > 10)then 
                                 do j = 1, 5, 1
                                     if(mrl_new(ngrwm(j, i)) == 1)then
                                         ref(ngrwm(j, i)) = 1
@@ -779,25 +837,36 @@ Contains
                                 end do
                             end if
                         else if(edges == 6)then
+                            ! 当i点相邻三角形有两个被细化 1+1+1+4+4+1
                             if(sum(mrl_new(ngrwm(1:6, i))) == 12)then
                                 do j = 1, 3, 1
+                                    ! 如果两个被细化三角形是相对的
+                                    ! 细化一侧的三角形，将另一侧视作弱凹
+                                    ! 弱凹处理将会减少1条边，若两边都视作弱凹
+                                    ! 那么6-2=4，将会出现四边形（图f）
                                     if((mrl_new(ngrwm(j, i)) == 4).and.(mrl_new(ngrwm(j + 3, i)) == 4))then
-                                        if((mrl_new(ngrwm(j + 1, i)) == 1).and.(mrl_new(ngrwm(j + 1, i)) == 1))then
+                                        if((mrl_new(ngrwm(j + 1, i)) == 1).and.(mrl_new(ngrwm(j + 2, i)) == 1))then
                                             ref(ngrwm(j + 1, i)) = 1
                                             ref(ngrwm(j + 2, i)) = 1
                                         end if
                                     end if
                                 end do
+                            ! 当i点相邻三角形有一个被细化 1+1+1+4+1+1
                             else if(sum(mrl_new(ngrwm(1:6, i))) == 9)then
                                 k = 0
                                 do j = 1, 6, 1
                                     l = ngrwm(j, i)
                                     if(mrl_new(l) == 1)then
+                                        ! 1+1+4=6，记录相邻三角形的相邻三角形有细化的情况
                                         if(sum(mrl_new(ngrmm(1:3, l))) == 6)then
                                             k = k + 1
                                         end if
                                     end if
                                 end do
+                                ! 由于本来存在一个已细化的相邻三角形
+                                ! 2+2=4>3
+                                ! 每个六边形外的相邻三角形要新增一条线
+                                ! 因此6+2大于7时，细化所有相邻三角形（图g）
                                 if(k > 3)then
                                     do j = 1, 6, 1
                                         l = ngrwm(j, i)
@@ -816,8 +885,8 @@ Contains
 
                 if(num_ref == 0)then
                     iterC = .true.
-                else
-                    iterA = .false.
+                else ! 存在三角形需要进行细化
+                    iterA = .false. ! 需要循环进行循环B和循环C，下面过程与前面类似
                     iter = iter + 1
                     nmp(iter) = nmp(iter - 1) + 4 * num_ref
                     nwp(iter) = nwp(iter - 1) + 3 * num_ref
@@ -922,10 +991,10 @@ Contains
             print*, "iterC end"
         end do ! iterA
         print*, "iterA end"
-        print*, "Refining step 2 is complete"
+        print*, "细化第二步完成"
 
         !--------------------------------------------------
-        ! 2.2 Store the new grid data refined in step 2
+        ! 2.2 储存第二步细化后新网格数据
         !--------------------------------------------------
         lndname = trim(base_dir) // trim(EXPNME)  // "/makegrid/tmp/gridfile_NXP" // trim(nxpc) // "_01_2.nc4"
         print*, lndname
@@ -953,7 +1022,7 @@ Contains
         !stop
 
         !--------------------------------------------------
-        ! 3.1 Look for weak pits
+        ! 3.1 寻找弱凹点
         !--------------------------------------------------
         ref = 0
         iter = iter + 1
@@ -986,13 +1055,13 @@ Contains
         end do
 
         num_ref = INT(sum(ref))
-        print*, "Begin to refine the weak concave points"
+        print*, "开始细化弱凹点"
 
         nmp(iter) = nmp(iter - 1) + 2 * num_ref
         nwp(iter) = nwp(iter - 1) + num_ref
 
         !--------------------------------------------------
-        ! 3.2 Refine the weak concave points
+        ! 3.2 细化弱凹点
         !--------------------------------------------------
         print*, "iter =", iter, "num =", num_ref
 
@@ -1116,14 +1185,14 @@ Contains
             end if
         end do
 
-        print*, "The third step is to refine the total number of triangles", refed(iter) * 2
-        print*, "Refining step 3 is complete"
+        print*, "第三步细化三角形总数为", refed(iter) * 2
+        print*, "细化第三步完成"
 
         ref = 0
         iter = iter + 1
 
         !--------------------------------------------------
-        ! 3.3 Store the new grid data refined in step 3
+        ! 3.3 储存第三步细化后新网格数据
         !--------------------------------------------------
         lndname = trim(base_dir) // trim(EXPNME)  // "/makegrid/tmp/gridfile_NXP" // trim(nxpc) // "_01_3.nc4"
         print*, lndname
@@ -1151,7 +1220,7 @@ Contains
         !stop
 
         !--------------------------------------------------
-        ! 4.1 Records are adjacent to only one refined triangle
+        ! 4.1 记录相邻只有一个细化的三角形
         !--------------------------------------------------
         ref = 0
         do i = 1, sjx_points, 1
@@ -1164,14 +1233,14 @@ Contains
 
         num_ref = INT(sum(ref))
 
-        print*, "Begin to refine adjacent triangles Triangles with a preliminary refinement number of 1"
+        print*, "开始细化相邻三角形经过初步细化数为1的三角形"
         print*, "iter =", iter, "num =", num_ref
 
         nmp(iter) = nmp(iter - 1) + 2 * num_ref
         nwp(iter) = nwp(iter - 1) + num_ref
 
         !--------------------------------------------------
-        ! 4.2 Thinning Adjacent triangle with only one thinning triangle (split in two)
+        ! 4.2 细化相邻只有一个细化的三角形（一分为二）
         !--------------------------------------------------
         do i = 1, sjx_points, 1
             if(ref(i) == 1)then
@@ -1262,11 +1331,11 @@ Contains
         end do
 
         print*, "itered_num =", refed(iter)
-        print*, "Refine step 4 complete"
+        print*, "细化第四步完成"
         iter = iter + 1
 
         !--------------------------------------------------
-        ! 4.3 Store the new grid data refined in step 4
+        ! 4.3 储存第四步细化后新网格数据
         !--------------------------------------------------
         lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/tmp/gridfile_NXP" // trim(nxpc) // "_01_4.nc4"
         print*, lndname
@@ -1293,9 +1362,9 @@ Contains
 
         !stop
         !--------------------------------------------------
-        ! 5.1 Calculate and store non-duplicate w points
+        ! 5.1 计算并储存非重复w点
         !--------------------------------------------------
-        print*, "Start making polygonal mesh"
+        print*, "开始制作多边形网格"
         num_dbx = 0
         allocate(wp_f(nwp(iter - 1), 5))
         wp_f(:, 1:2) = 9999.
@@ -1308,17 +1377,21 @@ Contains
                     isexist = .true.
                 end if
             end do
-            if(isexist == .false.)then
+            if(isexist .eqv. .false.)then
                 num_dbx = num_dbx + 1
                 wp_f(num_dbx, 1) = wp_new(i, 1)
                 wp_f(num_dbx, 2) = wp_new(i, 2)
             end if
         end do
 
+        print*, "细化前共有", lbx_points, "个多边形网格"
+        print*, "细化后共有", nwp(iter - 1), "个多边形网格"
+        print*, "去除重复点后，还剩", num_dbx, "个多边形网格"
+
         !--------------------------------------------------
-        ! 5.2 Recalculate and store ngrmw
+        ! 5.2 重新计算并储存ngrmw
         !--------------------------------------------------
-        print*, "Recalculate and store ngrmw"
+        print*, "重新计算并储存ngrmw"
         do i = 1, nmp(iter - 1), 1
             do j = 1, 3, 1
                 if(ngrmw_new(j, i) /= 1)then
@@ -1330,12 +1403,12 @@ Contains
                 end if
             end do
         end do
-        print*, "Calculation complete"
+        print*, "计算完成"
 
         !--------------------------------------------------
-        ! 5.3 Recalculate and store ngrwm
+        ! 5.3 重新计算并储存ngrwm
         !--------------------------------------------------
-        print*, "Recalculate and store ngrwm"
+        print*, "重新计算并储存ngrwm"
         allocate(ngrwm_f(8, nwp(iter - 1)))
         ngrwm_f(8, :) = 0
         ngrwm_f(1:7, :) = 1
@@ -1356,7 +1429,7 @@ Contains
                 end if
             end do
         end do
-        print*, "The calculation is complete and the sorting begins"
+        print*, "计算完成，开始排序"
         print*, minval(ngrwm_f(8, :)), maxval(ngrwm_f(8, :))
 
         !do i = 1,num_dbx,1
@@ -1386,11 +1459,11 @@ Contains
         !   end do
         !end do
 
-        ! Sort the ngrwm (form polygons in order)
+        ! 对ngrwm进行排序（按顺序构成多边形）
         CALL GetSort(ngrwm_f, nwp(iter - 1), mp_new, sjx_points, num_dbx, nmp(iter - 1))
         !CALL GetSort(ngrwm_f(:, 1:num_dbx), mp_new(1:nmp(iter - 1), 1:2), num_dbx, nmp(iter - 1))
 
-        print*, "Sort completion"
+        print*, "排序完成"
 
         allocate(ref_pl(num_dbx, 16))
         ref_pl = 0
@@ -1406,9 +1479,9 @@ Contains
         end do
 
         !--------------------------------------------------
-        ! 5.4 Remove refined triangles (m points)
+        ! 5.4 去除已细化三角形（m点）
         !--------------------------------------------------
-        print*, "Start removing the refined triangle"
+        print*, "开始去除已细化三角形"
         num_ref = 0
 
         !do i = 1,sjx_points,1
@@ -1433,7 +1506,7 @@ Contains
             end if
         end do
 
-        print*, "The number of triangles that have been refined is", num_ref
+        print*, "已被细化的三角形个数为", num_ref
         allocate(mp_ref(num_ref))
 
         num_ref = 0
@@ -1492,11 +1565,11 @@ Contains
 
         !print*,mp_ref
         print*, minval(ngrwm_f(1:7, 1:num_dbx)), minval(ngrmw_f)
-        print*, "The number of triangles before removing triangles that have been refined is", nmp(iter - 1)
-        print*, "The number of triangles after removing the refined triangles is", num_sjx
+        print*, "去除已被细化三角形前三角形个数为", nmp(iter - 1)
+        print*, "去除已被细化三角形后三角形个数为", num_sjx
 
         !--------------------------------------------------
-        ! 5.5 Storage grid data
+        ! 5.5 存储网格数据
         !--------------------------------------------------
         lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/tmp/gridfile_NXP" // trim(nxpc) // "_01_5.nc4"
         print*, lndname
@@ -1526,7 +1599,7 @@ Contains
 
         !stop
         !--------------------------------------------------
-        ! 6.1 Calculate the side length and Angle of the triangular mesh
+        ! 6.1 计算三角形网格边长与角度
         !--------------------------------------------------
         sa_iter = 0
         allocate(length(0:max_sa_iter, num_sjx, 3))
@@ -1549,19 +1622,18 @@ Contains
             !CALL GetTriangleAngle(length(sa_iter, i, :), angle(sa_iter, i, :))
         end do
 
-        print*, "Triangle side length:", minval(length(sa_iter, 2:num_sjx, :)), maxval(length(sa_iter, 2:num_sjx, :))
-        print*, "Triangle Angle:", minval(angle(sa_iter, 2:num_sjx, :)), maxval(angle(sa_iter, 2:num_sjx, :))
+        print*, "三角形边长：", minval(length(sa_iter, 2:num_sjx, :)), maxval(length(sa_iter, 2:num_sjx, :))
+        print*, "三角形角度：", minval(angle(sa_iter, 2:num_sjx, :)), maxval(angle(sa_iter, 2:num_sjx, :))
         !stop
 
-	! --------------------------------------------------
-	! 6.2 Calculate the quality of triangular mesh before elastic adjustment
-	! --------------------------------------------------
-	! Extr_*** refers to the minimum Angle and maximum Angle of the grid
-	! Eavg_*** refers to the average of the minimum Angle and maximum Angle of the grid
-	! Savg_*** refers to the standard deviation between the Angle of the mesh and the Angle of the regular polygon
-	! less30 refers to the number of angles less than 30 degrees in a triangular grid        
-
-	sa_iter = 0
+        !--------------------------------------------------
+        ! 6.2 计算弹性调整前三角形网格质量
+        !--------------------------------------------------
+        ! Extr_*** 指网格的最小角度与最大角度
+        ! Eavg_*** 指网格的最小角度与最大角度平均值
+        ! Savg_*** 指网格角度与正多边形角度的标准差
+        ! less30   指三角形网格中小于30度角的数量
+        sa_iter = 0
 
         allocate(Eavg_sjx(0:max_sa_iter, 2))
         allocate(Extr_sjx(0:max_sa_iter, 2))
@@ -1596,8 +1668,8 @@ Contains
         less30(sa_iter) = less30(sa_iter) / (num_sjx - 1)
 
         !--------------------------------------------------
-        ! 6.3 Adjust all m points to the center of the triangle grid        
-	!--------------------------------------------------
+        ! 6.3 调整所有m点至三角形网格重心
+        !--------------------------------------------------
         do i = 2, num_sjx, 1
             w1 = ngrmw_f(1, i)
             w2 = ngrmw_f(2, i)
@@ -1626,7 +1698,7 @@ Contains
         end do
 
         !--------------------------------------------------
-        ! 6.4 Calculate the quality of polygon mesh before elastic adjustment
+        ! 6.4 计算弹性调整前多边形网格质量
         !--------------------------------------------------
         n_wbx = 0
         n_lbx = 0
@@ -1653,10 +1725,10 @@ Contains
 
         end do
 
-	! Extr_*** refers to the minimum Angle and maximum Angle of the grid
-	! Eavg_*** refers to the average of the minimum Angle and maximum Angle of the grid
-	! Savg_*** refers to the standard deviation between the Angle of the mesh and the Angle of the regular polygon        
-	allocate(angle_wbx(0:max_sa_iter, n_wbx, 7))
+        ! Extr_*** 指网格的最小角度与最大角度
+        ! Eavg_*** 指网格的最小角度与最大角度平均值
+        ! Savg_*** 指网格角度与正多边形角度的标准差
+        allocate(angle_wbx(0:max_sa_iter, n_wbx, 7))
         allocate(angle_lbx(0:max_sa_iter, n_lbx, 7))
         allocate(angle_qbx(0:max_sa_iter, n_qbx, 7))
         allocate(Eavg_wbx(0:max_sa_iter, 2))
@@ -1756,28 +1828,29 @@ Contains
         Savg_lbx(sa_iter) = sqrt(Savg_lbx(sa_iter) / (n_lbx * 6.))
         Savg_qbx(sa_iter) = sqrt(Savg_qbx(sa_iter) / (n_qbx * 7.))
 
-        print*, "The pentagon grid information is as follows:"
-         print*, "Number of grids ", n_wbx
-         print *, "minimum angle", minval (angle_wbx (sa_iter, :, 1)),"maximum angle ", maxval (angle_wbx (sa_iter, :, 1))
-         print*, "Hexagonal grid information is as follows:"
-         print*, "Number of grids ", n_lbx
-         print *, " minimum angle", minval (angle_lbx (sa_iter, :, 1:6)),"maximum angle ", maxval (angle_lbx (sa_iter, :, 1:6))
-         print*, "Heptagon grid information is as follows:"
-         print*, "Number of grids ", n_qbx
-         Print *, "minimum angle", minval (angle_qbx (sa_iter, :, 1:7)),"maximum angle ", maxval (angle_qbx (sa_iter, :, 1:7))
+        print*, "五边形网格信息如下："
+        print*, "网格数量", n_wbx
+        print*, "最小角度", minval(angle_wbx(sa_iter, :, 1:5)), "最大角度", maxval(angle_wbx(sa_iter, :, 1:5))
+        print*, "六边形网格信息如下："
+        print*, "网格数量", n_lbx
+        print*, "最小角度", minval(angle_lbx(sa_iter, :, 1:6)), "最大角度", maxval(angle_lbx(sa_iter, :, 1:6))
+        print*, "七边形网格信息如下："
+        print*, "网格数量", n_qbx
+        print*, "最小角度", minval(angle_qbx(sa_iter, :, 1:7)), "最大角度", maxval(angle_qbx(sa_iter, :, 1:7))
+
         !stop
 
         !--------------------------------------------------
-        ! 6.3 Elastic Adjustment & Calculate the quality of the triangular mesh after each adjustment
+        ! 6.3 弹性调整&计算每次调整后的三角形网格质量
         !--------------------------------------------------
-        print*, "Initial elastic adjustment"
+        print*, "开始弹性调整"
         allocate(MoveDis(num_dbx, 2))
 
         sa_iter = 1
 
         End_SpringAjustment = .false.
 
-        do while(End_SpringAjustment == .false.)
+        do while(End_SpringAjustment .eqv. .false.)
 
             MoveDis = 0.
             End_SpringAjustment = .true.
@@ -1858,6 +1931,8 @@ Contains
             if((k /= 0).and.(sa_iter < max_sa_iter))then
                 End_SpringAjustment = .false.
             end if
+
+            print*, "第", sa_iter, "次弹性调整完成，调整角度个数为", k
 
             do i = 2, num_sjx, 1
                 w1 = ngrmw_f(1, i)
@@ -1964,7 +2039,7 @@ Contains
         end do
 
         !--------------------------------------------------
-        ! 6.4 Store grid quality data
+        ! 6.4 存储网格质量数据
         !--------------------------------------------------
         if(max_iter == 1)then
             lndname = trim(base_dir) // trim(EXPNME) // "/makegrid/result/quality_NXP" // trim(nxpc) // "_lbx.nc4"
@@ -2009,7 +2084,7 @@ Contains
         !stop
 
         !--------------------------------------------------
-        ! 6.5 Store the final grid data
+        ! 6.5 存储最终网格数据
         !--------------------------------------------------
 
         allocate(mp_f_tmp(1:num_sjx,1:2)); mp_f_tmp = mp_f(1:num_sjx,1:2)
@@ -2067,7 +2142,7 @@ Contains
 
     SUBROUTINE CHECK(STATUS)
         INTEGER, intent (in) :: STATUS
-        if  (STATUS /= NF90_NOERR) then 
+        if  (STATUS /= NF90_NOERR) then ! nf_noerr=0 表示没有错误
             print *, NF90_STRERROR(STATUS)
             stop 'stopped'
         endif
@@ -2194,7 +2269,7 @@ Contains
                     end if
                 end do
 
-                if(icl == .true.)then
+                if(icl .eqv. .true.)then
                     do j = 1, ngr(8, i), 1
                         if(points(j, 1) < 0.)then
                             points(j, 1) = points(j, 1) + 360.
@@ -2257,7 +2332,7 @@ Contains
     END SUBROUTINE GetSort
 
 
-    ! Calculate the outer center (intersection of vertical bisectors)p of the triangle abc
+    ! 计算三角形abc的外心(垂直平分线交点)p
     SUBROUTINE MedianToCircum(a, b, c, p)
 
         implicit none
