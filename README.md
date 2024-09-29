@@ -1,4 +1,4 @@
-# Make_Unstructured_Grid
+# LandMesh
 
 This repository contains the grid generation tool for the Common Land Model version 2024 (CoLM2024). It allows for the creation of unstructured meshes with adaptive refinement based on various surface characteristics.
 
