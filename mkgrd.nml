@@ -1,5 +1,8 @@
 ! Create initial triangular & polygonal mesh (unrefined)
-
+!一个是全球未细化基础网格（根据NXP），一个是细化区域（只有细化区域内的网格才会被细化）
+!一个是包含关系计算区域（只有这里面的网格会计算包含关系）。
+！细化必须要指定阈值，不然都符合条件就不会细化。
+！细化区域可以和包含关系计算区域设置成一样，也可以比后者小。相当于在包含关系计算的区域里选一块进行细化
 &mkgrd
  !--------------------------------------------------------------------------
  ! Simulation title (64 chars)
@@ -15,7 +18,7 @@
  ! Grid, Land, and Sea files path/names; Sea grid configuration
  !--------------------------------------------------------------------------
   NL%base_dir      = '/share/home/dq013/zhwei/mkgrd/cases/'   ! Location to store the case
-  NL%source_dir    = '/share/home/dq013/zhwei/mkgrd/source_data/usgs/'   ! Location of threshold files
+  NL%source_dir    = '/share/home/dq013/zhwei/mkgrd/source_data/igbp/'   ! Location of threshold files
 
  !--------------------------------------------------------------------------
  ! Horizontal grid refinement ("nested grid") definition
@@ -23,10 +26,10 @@
 
   NL%openmp                = 130
   NL%mode                  = 6       ! 3 or 6
-  NL%nlons_source          = 43200   ! surface data resolution 
-  NL%nlats_source          = 21600   ! surface data resolution
-  NL%nlons_dest            = 43200   ! patchtype resolution(mpi)
-  NL%nlats_dest            = 21600   ! patchtype resolution(mpi)
+  NL%nlons_source          = 86400   ! surface data resolution
+  NL%nlats_source          = 43200   ! surface data resolution
+  NL%nlons_dest            = 86400   ! patchtype resolution(mpi)
+  NL%nlats_dest            = 43200   ! patchtype resolution(mpi)
   !
   NL%refine               = .TRUE.
   NL%no_caculate_fraction = .FALSE.
