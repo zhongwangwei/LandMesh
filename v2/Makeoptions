@@ -1,0 +1,15 @@
+# =======================================================
+# mpif90 - ifort 
+# 
+
+ FF = ifort
+ NETCDF_LIB = /home/zhwei/software/NETCDF/c-4.7.3-f4.5.2/lib
+ NETCDF_INC = /home/zhwei/software/NETCDF/c-4.7.3-f4.5.2/include
+
+
+ #FOPTS = -O3 -fno-alias -nogen-interface -ip -C -qopenmp -traceback -warn all -heap-arrays -mcmodel=medium  -assume byterecl
+ FOPTS = -O3 -fno-alias -nogen-interface -ip -C -qopenmp -traceback -w -heap-arrays -mcmodel=medium  -assume byterecl -qoverride-limits
+
+ LDFLAGS = -L${NETCDF_LIB} -lnetcdff 
+ INCLUDE_DIR = -I${NETCDF_INC}
+
