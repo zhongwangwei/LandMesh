@@ -1,13 +1,13 @@
 # LandMesh
 
-This repository contains the grid generation tool for the Common Land Model version 2024 (CoLM2024). It allows for the creation of unstructured meshes with adaptive refinement based on various surface characteristics.
+This repository contains the grid generation tool for the Common Land Model version 2024 (CoLM2024). It allows for creating unstructured meshes with adaptive refinement based on various surface characteristics.
 
 ## Key Features
 
 - Generates initial icosahedral or hexagonal grids
 - Performs adaptive mesh refinement based on configurable thresholds
 - Supports refinement criteria like land type heterogeneity, topography, LAI, soil properties, etc.
-- Outputs grid files compatible with CoLM2024
+- Outputs grid files compatible with CoLM2024 and other models
 
 
 ## Usage
@@ -41,10 +41,13 @@ If you use this tool in your research, please cite:
 For questions or support, please contact zhongwang wei (zhongwang007@gmail.com).
 
 ## Author
-Hanwen Fan and Zhongwang Wei @ SYSU
+Rui Zhang(V2), Hanwen Fan (V1) and Zhongwang Wei @ SYSU
 
 
 ## REVISION HISTORY
+! 2025.01.09 The Initial version of V2 is being developed by Rui Zhang
+
+! 2025.01.09 V1 has been archived by Zhongwang Wei
 
 ! 2024.07.19 Zhongwang Wei
 
@@ -57,7 +60,7 @@ Hanwen Fan and Zhongwang Wei @ SYSU
 ! 2020.10.01  Zhongwang Wei @ SYSU
 
 ###
-## Directory Structure
+## Directory Structure for V1 (V2 will be updated soon)
 
 //////////////////////////////////////////////////////////////////////////////////
 
