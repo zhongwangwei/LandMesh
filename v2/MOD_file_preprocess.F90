@@ -31,7 +31,55 @@ module MOD_file_preprocess
       CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_CLOSE关闭文件
   
    END SUBROUTINE Unstructured_Threshold_Read
-   
+
+   SUBROUTINE Mode4_Mesh_Read(lndname, bound_points, mode4_points, lonlat_bound, ngr_bound)!, lonlat_bound
+      IMPLICIT NONE
+      integer :: i, ncid, dimID_bound, dimID_points
+      integer, dimension(4) :: varid
+      character(len = 256), intent(in) :: lndname
+      integer,  intent(out) :: bound_points, mode4_points
+      real(r8), dimension(:, :), allocatable, intent(out) :: lonlat_bound
+      integer,  dimension(:, :), allocatable, intent(out) :: ngr_bound
+      CALL CHECK(NF90_OPEN(trim(lndname), nf90_nowrite, ncid))! 1. NF90_OPEN 打开文件 
+      CALL CHECK(NF90_INQ_DIMID(ncid, "bound_points", dimID_bound))
+      CALL CHECK(NF90_INQ_DIMID(ncid, "mode4_points", dimID_points))! 2. NF90_INQ_DIMID获取维度ID 
+      CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_bound,  len = bound_points))
+      CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_points, len = mode4_points))! 3. NF90_INQUIRE_DIMENSION获取各维度的长度
+      allocate(lonlat_bound(bound_points, 2))
+      allocate(ngr_bound(4, mode4_points))
+      CALL CHECK(NF90_INQ_VARID(ncid, 'lonlat_bound', varid(1)))
+      CALL CHECK(NF90_INQ_VARID(ncid, 'ngr_bound', varid(2)))
+      CALL CHECK(NF90_GET_VAR(ncid, varid(1), lonlat_bound))
+      CALL CHECK(NF90_GET_VAR(ncid, varid(2), ngr_bound))
+      CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_CLOSE关闭文件
+  
+   END SUBROUTINE Mode4_Mesh_Read
+
+   SUBROUTINE Mode4_Mesh_Save(lndname, bound_points, mode4_points, lonlat_bound, ngr_bound)
+
+      IMPLICIT NONE
+      
+      character(len = 256), intent(in) :: lndname
+      integer :: ncid, dimID_bound, dimID_points, dimID_two, dimID_four, varid(2)
+      integer, intent(in) :: bound_points, mode4_points
+      real(r8), dimension(:, :), allocatable, intent(in) :: lonlat_bound
+      integer,  dimension(:, :), allocatable, intent(in) :: ngr_bound
+ 
+      CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncid))
+      CALL CHECK(NF90_DEF_DIM(ncid, "bound_points", bound_points, DimID_bound))
+      CALL CHECK(NF90_DEF_DIM(ncid, "mode4_points", mode4_points, DimID_points))
+      CALL CHECK(NF90_DEF_DIM(ncid, "two", 2, DimID_two))
+      CALL CHECK(NF90_DEF_DIM(ncid, "four", 4, DimID_four))
+      CALL CHECK(NF90_DEF_VAR(ncid, "lonlat_bound", NF90_FLOAT, (/ DimID_bound, DimID_two /), varid(1)))
+      CALL CHECK(NF90_DEF_VAR(ncid, "ngr_bound", NF90_INT, (/ DimID_four, DimID_points /), varid(2)))
+      CALL CHECK(NF90_ENDDEF(ncid))
+      CALL CHECK(NF90_PUT_VAR(ncid, varid(1), lonlat_bound))
+      CALL CHECK(NF90_PUT_VAR(ncid, varid(2), ngr_bound))
+      CALL CHECK(NF90_CLOSE(ncid))
+      print*, "mode4 mesh save finish"
+
+   END SUBROUTINE Mode4_Mesh_Save
+
    SUBROUTINE Unstructured_Mesh_Read(lndname, sjx_points, lbx_points, mp, wp, ngrmw, ngrwm, n_ngrwm)
       !p_name(8) = (/"GLONM", "GLATM", "GLONW", "GLATW", "itab_w%iw", "itab_m%im", "n_ngrwm"/)
       IMPLICIT NONE
@@ -162,27 +210,53 @@ module MOD_file_preprocess
 
    END SUBROUTINE Contain_Read
 
-   SUBROUTINE Contain_Save(lndname, num_ustr, num_ii, ustr_id, ustr_ii)
+   SUBROUTINE Contain_Save(lndname, num_ustr, num_ii, ustr_id, ustr_ii, Min_matrix_index)
       ! 建议*_id, *_area, *_ii都放在一个文件里面就好了
       IMPLICIT NONE
 
       character(len = 256), intent(in) :: lndname
       integer, intent(in) :: num_ustr, num_ii
-      integer,  dimension(:,:), allocatable, intent(in) :: ustr_id, ustr_ii
-      integer :: ncid, Dim_ustrID, Dim_iiID, Dim_aID
-      integer :: varid(2)
+      integer,  dimension(:,:), allocatable, intent(in) :: ustr_id, ustr_ii, Min_matrix_index
+      integer :: ncid, Dim_ustrID, Dim_iiID, Dim_aID, Dim_bID
+      integer :: varid(3)
 
       CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncid))
       CALL CHECK(NF90_DEF_DIM(ncid, "num_ustr", num_ustr, Dim_ustrID))
       CALL CHECK(NF90_DEF_DIM(ncid, "num_ii", num_ii, Dim_iiID))
       CALL CHECK(NF90_DEF_DIM(ncid, "dim_a", 2, Dim_aID)) ! *_id
+      CALL CHECK(NF90_DEF_DIM(ncid, "dim_b", 4, Dim_bID))
       CALL CHECK(NF90_DEF_VAR(ncid, 'ustr_id', NF90_INT, (/ Dim_ustrID, Dim_aID /), varid(1)))
       CALL CHECK(NF90_DEF_VAR(ncid, 'ustr_ii', NF90_INT, (/ Dim_iiID, Dim_aID /), varid(2)))
+      CALL CHECK(NF90_DEF_VAR(ncid, 'Min_matrix_index', NF90_INT, (/ Dim_bID, Dim_ustrID /), varid(3)))
       CALL CHECK(NF90_ENDDEF(ncid))
       CALL CHECK(NF90_PUT_VAR(ncid, varid(1), ustr_id))
       CALL CHECK(NF90_PUT_VAR(ncid, varid(2), ustr_ii))
+      CALL CHECK(NF90_PUT_VAR(ncid, varid(3), Min_matrix_index(:, 1:num_ustr)))
       CALL CHECK(NF90_CLOSE(ncid))
       
    END SUBROUTINE Contain_Save
+
+   SUBROUTINE Mode4_Contain_Save(lndname, num_ustr, ustr_id, Min_matrix_index)
+      IMPLICIT NONE
+
+      character(len = 256), intent(in) :: lndname
+      integer, intent(in) :: num_ustr
+      integer,  dimension(:,:), allocatable, intent(in) :: ustr_id, Min_matrix_index
+      integer :: ncid, Dim_ustrID, Dim_iiID, Dim_aID, Dim_bID
+      integer :: varid(2)
+
+      CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncid))
+      CALL CHECK(NF90_DEF_DIM(ncid, "num_ustr", num_ustr, Dim_ustrID))
+      CALL CHECK(NF90_DEF_DIM(ncid, "dim_a", 2, Dim_aID)) ! *_id
+      CALL CHECK(NF90_DEF_DIM(ncid, "dim_b", 4, Dim_bID))
+      CALL CHECK(NF90_DEF_VAR(ncid, 'ustr_id', NF90_INT, (/ Dim_ustrID, Dim_aID /), varid(1)))
+      CALL CHECK(NF90_DEF_VAR(ncid, 'Min_matrix_index', NF90_INT, (/ Dim_bID, Dim_ustrID /), varid(2)))
+      CALL CHECK(NF90_ENDDEF(ncid))
+      CALL CHECK(NF90_PUT_VAR(ncid, varid(1), ustr_id))
+      CALL CHECK(NF90_PUT_VAR(ncid, varid(2), Min_matrix_index(:, 1:num_ustr)))
+      CALL CHECK(NF90_CLOSE(ncid))
+
+   END SUBROUTINE Mode4_Contain_Save
+
 
 END Module MOD_file_preprocess

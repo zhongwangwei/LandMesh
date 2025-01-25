@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J mesh-teach
+#SBATCH -J landmeshv7
 #SBATCH -p first
 #SBATCH -N 1
 #SBATCH -n 1
@@ -17,18 +17,11 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 #SBATCH -e mkgrd_${TIMESTAMP}.e
 
 ulimit -s unlimited
-source /home/zhangr23/.bashrc_CoLM202X_intel
-#echo "Script started at $(date)" > log.landmeshv4-nxp36
-#./mkgrd.x nxp36.nml &>> log.landmeshv4-nxp36
-#echo "Script finished at $(date)" >> log.landmeshv4-nxp36
-#wait
+source ~/.bashrc_CoLM202X_intel
+echo "Script started at $(date)" > log.landmeshv7-2880x1440-20250122-usgs-mode4
+./mkgrd.x landmeshv7.nml &>> log.landmeshv7-2880x1440-20250122-usgs-mode4
+echo "Script finished at $(date)" >> log.landmeshv7-2880x1440-20250122-usgs-mode4
 
-#echo "Script started at $(date)" > log.landmeshv4-nxp72
-#./mkgrd.x nxp72.nml &>> log.landmeshv4-nxp72
-#echo "Script finished at $(date)" >> log.landmeshv4-nxp72
-#wait
- 
-#echo "Script started at $(date)" > log.landmeshv4-nxp144
-#./mkgrd.x nxp144.nml &>> log.landmeshv4-nxp144
-#echo "Script finished at $(date)" >> log.landmeshv4-nxp144
-#wait
+#echo "Script started at $(date)" > log.landmeshv7-case1-20250112
+#./mkgrd.x landmeshv7-case1.nml &>> log.landmeshv7-case1-20250112
+#echo "Script finished at $(date)" >> log.landmeshv7-case1-20250112
