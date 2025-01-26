@@ -52,9 +52,6 @@ Module consts_coms
     real, parameter :: pi2 = 3.1415927 * 2.
 
     real :: dlat                          ! Earth 1-latitude-degree dist [m]
-    real :: omega                         ! Earth rotational angular velocity
-    real :: omega2                        ! omega * 2
-    real :: xscale                        ! erad scaling factor (for NCAR DCMIP test cases)
     real :: erad                          ! Earth radius [m]
     real :: erad2
     real :: erad4
@@ -72,6 +69,9 @@ Module consts_coms
     character(pathlen) :: source_dir
     !!!!!!!!!!!!!!!!!!!!! Add by Rui Zhang !!!!!!!!!!!!!
     character(pathlen) :: file_dir
+    character(pathlen) :: mode_filedir
+    character(16) :: mode4_datatype
+    character(16) :: mode4_gridtype
     !!!!!!!!!!!!!!!!!!!!! Add by Rui Zhang !!!!!!!!!!!!!
     character(16) :: lcs
     real :: rinit = 0.0
@@ -83,7 +83,7 @@ Module consts_coms
     integer :: openmp
     integer :: ndm_domain
     logical :: refine
-    logical :: no_caculate_fraction
+    ! logical :: no_caculate_fraction
     integer :: nlons_source
     integer :: nlats_source
     ! integer :: nlons_dest
@@ -99,17 +99,20 @@ Module consts_coms
         character(64) :: expnme = 'OLAM test'
         character(pathlen) :: base_dir = ' /tmp'
         character(pathlen) :: source_dir = ' /tmp'
+        character(pathlen) :: mode_filedir = ' /tmp'
+        character(16) :: mode4_gridtype = 'lonlat'
+        character(16) :: mode4_datatype = 'ncfile'
         character(16) :: lcs = 'igbp'
         !!    GRID SPECIFICATIONS
         integer :: nxp = 0
         integer :: openmp = 16
         integer :: mode = 6
-        integer :: maxlc = 17
+        ! integer :: maxlc = 17
 
         logical :: refine = .FALSE.
-        logical :: no_caculate_fraction   =    .FALSE.
-        integer :: nlons_source           =    43200
-        integer :: nlats_source           =    21600
+        ! logical :: no_caculate_fraction   =    .FALSE.
+        ! integer :: nlons_source           =    43200
+        ! integer :: nlats_source           =    21600
         ! integer :: nlons_dest             =    43200
         ! integer :: nlats_dest             =    21600
         integer :: ndm_domain             =    1
@@ -122,6 +125,39 @@ Module consts_coms
     type (oname_vars) :: nl
 End Module
 !===============================================================================
+
+! Add by Rui Zhang for lonlatmesh read from namelist
+!===============================================================================
+Module lonlatmesh_coms
+
+    use consts_coms, only : r8 
+    implicit none
+
+    character(10) :: mesh_type
+    real(r8)      :: lon_start
+    real(r8)      :: lon_end
+    real(r8)      :: lon_grid_interval
+    integer       :: lon_points 
+    real(r8)      :: lat_start     
+    real(r8)      :: lat_end         
+    real(r8)      :: lat_grid_interval
+    integer       :: lat_points
+
+    Type mesh_vars
+        character(10) :: mesh_type         = 'center'
+        real(r8)      :: lon_start         = 0.
+        real(r8)      :: lon_end           = 359. 
+        real(r8)      :: lon_grid_interval = 0.0625
+        integer       :: lon_points        = 2880
+        real(r8)      :: lat_start         = 0. 
+        real(r8)      :: lat_end           = 0.
+        real(r8)      :: lat_grid_interval = 0.
+        integer       :: lat_points        = 1440
+    End Type mesh_vars
+    type (mesh_vars) :: mesh
+End Module
+!===============================================================================
+
 
 Module mem_grid
     use consts_coms, only : r8
@@ -870,17 +906,18 @@ Module refine_vars
 
     integer :: max_iter               =  4
     integer :: max_sa_iter            =  500
-
     integer :: th_num_landtypes       =  12
+    
     real(r8) :: th_area_mainland      =  0.6
     real(r8) :: th_onelayer(4)        =  999.
     real(r8) :: th_twolayer(10, 2)    =  999.
 
-    logical  :: refine_num_landtypes   =  .FALSE.
-    logical  :: refine_area_mainland   =  .FALSE.
-    logical  :: refine_onelayer(4)     =  .FALSE.
-    logical  :: refine_twolayer(10)    =  .FALSE.
-
+    logical :: th_file_read           = .FALSE.
+    logical :: refine_num_landtypes   = .FALSE.
+    logical :: refine_area_mainland   = .FALSE.
+    logical :: refine_onelayer(4)     = .FALSE.
+    logical :: refine_twolayer(10)    = .FALSE.
+    character(256) :: th_filedir      = '/tmp'
 
     Type threshold_vars
         integer :: ndm_refine
@@ -893,7 +930,7 @@ Module refine_vars
         integer :: max_iter
         integer :: max_sa_iter
         integer :: th_num_landtypes
-
+        logical  :: th_file_read          =  .FALSE.
         logical  :: refine_num_landtypes  =  .FALSE.
         logical  :: refine_area_mainland  =  .FALSE.
         logical  :: refine_lai_m          =  .FALSE.
@@ -910,7 +947,7 @@ Module refine_vars
         logical  :: refine_tksatf_s       =  .FALSE.
         logical  :: refine_tksatu_m       =  .FALSE.
         logical  :: refine_tksatu_s       =  .FALSE.
-
+        character(256) :: th_filedir      = '/tmp'
 
         real(r8) :: th_area_mainland
         real(r8) :: th_lai_m

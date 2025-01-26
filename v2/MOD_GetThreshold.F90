@@ -34,35 +34,34 @@ MODULE MOD_GetThreshold
         integer :: sjx_points, numpatch, spDimID, twoDimID, DimID, ncid, varid(18), flag_temps
         integer,  dimension(:, :), allocatable :: mp_id, mp_ii
         integer,  dimension(:),    allocatable :: n_landtypes, nlaa, p_num
-        ! real(r8), dimension(:),  allocatable :: f_mainarea
+        real(r8), dimension(:),  allocatable :: f_mainarea
         real(r8), allocatable :: var2d_temp(:, :), var3d_temp(:, :, :)
         character(LEN = 5) :: nxpc, stepc
         character(LEN = 256) :: lndname
         integer :: i, j, row, col, L, num_onelayer, num_twolayer
-        !!!!!!!!!!!read data for FHW refine result!!!!!!!!!!!!!!!!!
-        integer, allocatable :: num_landtypes(:)
-        real(r8), allocatable :: f_mainarea(:,:), p_lai(:, :)
-        !!!!!!!!!!!read data for FHW refine result!!!!!!!!!!!!!!!!!
-        ! case3
-        lndname = '/stu01/zhangr23/makegrid/cases/case3_FHW_test/makegrid/threshold/threshold_NXP144_01.nc4'
-        CALL Unstructured_Threshold_Read(lndname, sjx_points, f_mainarea, num_landtypes, p_lai)
-        allocate(ref_sjx(sjx_points)); ref_sjx = 0
-        do i = 2, sjx_points, 1
-            if((f_mainarea(i, 1) == 0.).or.(f_mainarea(i, 1) == maxlc)) cycle
-            if (num_landtypes(i) > th_num_landtypes) ref_sjx(i) = 1
-            if (p_lai(i, 2) > th_onelayer(2)) ref_sjx(i) = 1
-        end do
-        print*, "sum(ref_sjx) = ",sum(ref_sjx)
-        if (sum(ref_sjx) == 6293) then
-            print*, "same as FHW code number"
-        else 
-            stop "not the same"
+        
+        if (th_file_read) then
+            lndname = th_filedir
+            CALL CHECK(NF90_OPEN(trim(lndname), nf90_nowrite, ncid))! 1. NF90_OPEN 打开文件
+            CALL CHECK(NF90_INQ_DIMID(ncid, "sjx_points", spDimID))!
+            CALL CHECK(NF90_INQ_DIMID(ncid, "num_swithes", DimID))!
+            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, spDimID, len = sjx_points))
+            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, DimID, len = num_swithes))
+            allocate(ref_sjx(sjx_points)); ref_sjx = 0
+            allocate(ref_th(sjx_points, num_swithes)); ref_th = 0
+            CALL CHECK(NF90_INQ_VARID(ncid, 'ref_th', varid(1)))
+            CALL CHECK(NF90_GET_VAR(ncid, varid(1), ref_th))
+            CALL CHECK(NF90_CLOSE(ncid))
+            do i = 1, sjx_points, 1
+                if (sum(ref_th(i, :)) > 0) ref_sjx(i) = 1 
+            end do
+            print*, "需要细化的三角形个数: ",INT(sum(ref_sjx))
+            deallocate(ref_th)
+            return
         end if
-        print*, "!!!!!!!!!!!read data for FHW refine result!!!!!!!!!!!!!!!!!" 
-        return ! just for compare with mkgrd-bk-regional test
 
         num_swithes = 0
-        write(nxpc, '(I3.3)') NXP
+        write(nxpc, '(I4.4)') NXP
         write(stepc, '(I2.2)') step
         print*, "开始读取非结构网格数据 in the GetThreshold.F90"
         lndname = trim(file_dir) // 'contain/contain_refine_NXP' // trim(nxpc) //'_'// trim(stepc) //'_mp.nc4'
@@ -75,7 +74,7 @@ MODULE MOD_GetThreshold
         allocate(ref_th(sjx_points,2+size(refine_onelayer)+size(refine_twolayer))); ref_th = 0
 
         ! 阈值文件的计算(可以保证进来GetThreshold就一定可以有阈值计算)
-        if (refine_num_landtypes .eqv. .true.) then
+        if (refine_num_landtypes) then
             print*, "threshold_Calculation for refine_num_landtypes"
             allocate(n_landtypes(sjx_points)); n_landtypes = 0
             allocate(nlaa(0:maxlc)) ! zero is ocean
@@ -102,9 +101,9 @@ MODULE MOD_GetThreshold
             print*, "threshold_Calculation for refine_num_landtypes : done"
         end if
 
-        if (refine_area_mainland .eqv. .true.) then
+        if (refine_area_mainland) then
             print*, "threshold_Calculation for refine_area_mainland"
-            ! allocate(f_mainarea(sjx_points)); f_mainarea = 0.
+            allocate(f_mainarea(sjx_points)); f_mainarea = 0.
             allocate(nlaa(0:maxlc)) ! zero is ocean
             !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC,1) &
             !$OMP PRIVATE(i, j, row, col, L, nlaa)
@@ -117,8 +116,8 @@ MODULE MOD_GetThreshold
                     L = landtypes(row, col) ! 获取这个经纬度网格的土地类型的编号 not ocean
                     if (L /= maxlc) nlaa(L) = nlaa(L) + 1 ! 该类型的土地面积累加
                 end do
-                ! f_mainarea(i) = min( maxval(nlaa)/mp_id(i, 1), 1) ! 非结构网格内主要土地类型占比
-                ! if (f_mainarea(i) < th_area_mainland) ref_sjx(i) = 1
+                f_mainarea(i) = min( maxval(nlaa)/mp_id(i, 1), 1) ! 非结构网格内主要土地类型占比
+                if (f_mainarea(i) < th_area_mainland) ref_sjx(i) = 1
             end do
             !$OMP END PARALLEL DO
             print*, "f_mainarea",minval(f_mainarea), maxval(f_mainarea)
@@ -144,7 +143,7 @@ MODULE MOD_GetThreshold
                     if ((refine_onelayer(2*i-1) .eqv. .false.) .and. (refine_onelayer(2*i) .eqv. .false.)) cycle ! 跳过
                     p_num = 0
                     flag_temps = 0
-                    if (refine_onelayer(2*i) .eqv. .true.) flag_temps = 1
+                    if (refine_onelayer(2*i)) flag_temps = 1
                     var2d_temp = input2d(i)%var2d
                     CALL mean_std_cal2d(i, sjx_points, flag_temps, mp_id, mp_ii, var2d_temp, num_onelayer, p_num)
                 end do
@@ -160,7 +159,7 @@ MODULE MOD_GetThreshold
                     if ((refine_twolayer(2*i-1) .eqv. .false.) .and. (refine_twolayer(2*i) .eqv. .false.)) cycle ! 跳过
                     p_num = 0
                     flag_temps = 0
-                    if (refine_twolayer(2*i) .eqv. .true.) flag_temps = 1
+                    if (refine_twolayer(2*i)) flag_temps = 1
                     var3d_temp = input3d(i)%var3d
                     CALL mean_std_cal3d(i, sjx_points, flag_temps, mp_id, mp_ii, var3d_temp, num_twolayer, p_num)
                 end do
@@ -180,12 +179,12 @@ MODULE MOD_GetThreshold
         CALL CHECK(NF90_DEF_DIM(ncid, "num_swithes", num_swithes, DimID))
         num_swithes = 0
         ! NF90_DEF_VAR
-        if (refine_num_landtypes .eqv. .true.) then
+        if (refine_num_landtypes) then
             num_swithes = num_swithes + 1
             CALL CHECK(NF90_DEF_VAR(ncid, "n_landtypes", NF90_INT, (/ spDimID /), varid(num_swithes)))
         end if
 
-        if (refine_area_mainland .eqv. .true.) then
+        if (refine_area_mainland) then
             num_swithes = num_swithes + 1
             CALL CHECK(NF90_DEF_VAR(ncid, "f_mainarea", NF90_INT, (/ spDimID /), varid(num_swithes)))
         end if
@@ -193,21 +192,21 @@ MODULE MOD_GetThreshold
         if (any(refine_onelayer .eqv. .true.) .or. &
             any(refine_twolayer .eqv. .true.)) then
             do i = 1, size(refine_onelayer)/2, 1
-                if (refine_onelayer(2*i-1) .eqv. .true.) then
+                if (refine_onelayer(2*i-1)) then
                     num_swithes = num_swithes + 1
                     CALL CHECK(NF90_DEF_VAR(ncid, trim(RL_onelayer(i))//"_m", NF90_float , (/ spDimID /), varid(num_swithes)))
                 end if
-                if (refine_onelayer(2*i) .eqv. .true.) then
+                if (refine_onelayer(2*i)) then
                     num_swithes = num_swithes + 1
                     CALL CHECK(NF90_DEF_VAR(ncid, trim(RL_onelayer(i))//"_s", NF90_float , (/ spDimID /), varid(num_swithes)))
                 end if
             end do
             do i = 1, size(refine_twolayer)/2, 1
-                if (refine_twolayer(2*i-1) .eqv. .true.) then
+                if (refine_twolayer(2*i-1)) then
                     num_swithes = num_swithes + 1
                     CALL CHECK(NF90_DEF_VAR(ncid, trim(RL_twolayer(i))//"_m", NF90_float , (/ spDimID, twoDimID /), varid(num_swithes)))
                 end if
-                if (refine_twolayer(2*i) .eqv. .true.) then
+                if (refine_twolayer(2*i)) then
                     num_swithes = num_swithes + 1
                     CALL CHECK(NF90_DEF_VAR(ncid, trim(RL_twolayer(i))//"_s", NF90_float , (/ spDimID, twoDimID /), varid(num_swithes)))
                 end if 
@@ -223,13 +222,13 @@ MODULE MOD_GetThreshold
         num_swithes = 0
         num_onelayer = 0 ! 单层数据计数
         num_twolayer = 0 ! 双层数据计数
-        if (refine_num_landtypes .eqv. .true.) then
+        if (refine_num_landtypes) then
             num_swithes = num_swithes + 1
             CALL CHECK(NF90_PUT_VAR(ncid, varid(num_swithes), n_landtypes))
             deallocate(n_landtypes)
         end if
 
-        if (refine_area_mainland .eqv. .true.) then
+        if (refine_area_mainland) then
             num_swithes = num_swithes + 1
             CALL CHECK(NF90_PUT_VAR(ncid, varid(num_swithes), f_mainarea))
             deallocate(f_mainarea)
@@ -238,7 +237,7 @@ MODULE MOD_GetThreshold
         if (any(refine_onelayer .eqv. .true.) .or. &
             any(refine_twolayer .eqv. .true.)) then
             do i = 1, size(refine_onelayer), 1
-                if (refine_onelayer(i) .eqv. .true.) then
+                if (refine_onelayer(i)) then
                     num_swithes = num_swithes + 1
                     num_onelayer = num_onelayer + 1
                     CALL CHECK(NF90_PUT_VAR(ncid, varid(num_swithes), output2d(num_onelayer)%varms))
@@ -246,7 +245,7 @@ MODULE MOD_GetThreshold
             end do
 
             do i = 1, size(refine_twolayer), 1
-                if (refine_twolayer(i) .eqv. .true.) then
+                if (refine_twolayer(i)) then
                     num_swithes = num_swithes + 1
                     num_twolayer = num_twolayer + 1
                     CALL CHECK(NF90_PUT_VAR(ncid, varid(num_swithes), output3d(num_twolayer)%varms))
@@ -299,7 +298,7 @@ MODULE MOD_GetThreshold
         end do
         !$OMP END PARALLEL DO
 
-        if (refine_onelayer(2*ii-1) .eqv. .true.) then
+        if (refine_onelayer(2*ii-1)) then
             print*, trim(RL_onelayer(ii))//"_m", minval(tempm, mask=(tempm /= 0.)), maxval(tempm, mask=(tempm /= 0.)) 
             num_onelayer = num_onelayer + 1
             allocate(output2d(num_onelayer)%varms(sjx_points))
@@ -369,7 +368,7 @@ MODULE MOD_GetThreshold
         end do
         !$OMP END PARALLEL DO
 
-        if (refine_twolayer(2*ii-1) .eqv. .true.) then 
+        if (refine_twolayer(2*ii-1)) then 
             num_twolayer = num_twolayer + 1
             allocate(output3d(num_twolayer)%varms(sjx_points, 2))
             output3d(num_twolayer)%varms = tempm

@@ -24,7 +24,7 @@ OBJS = \
 	MOD_Threshold_Read.o\
 	MOD_GetContain.o\
       	MOD_GetThreshold.o\
-	MOD_refine_lbx.o\
+	MOD_refine.o\
 	mkgrd.o\
 
 #        MOD_refine_sjx.o
