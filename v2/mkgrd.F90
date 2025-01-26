@@ -50,31 +50,27 @@ program main
     use consts_coms
     use refine_vars
     use MOD_GetContain       , only : Get_Contain
-    use MOD_Refine_LBX       , only : refine_lbx
-    !!!!!!!!!!!!!!!!!!!!!!!!! Add by Rui Zhang!!!!!!!!!!!!!
+    use MOD_Refine           , only : refine_loop
     use MOD_data_preprocess  , only : data_preprocess
     use MOD_Area_judge       , only : Area_judge
     use MOD_GetThreshold     , only : GetThreshold
     use MOD_Threshold_Read   , only : Threshold_Read
-    !!!!!!!!!!!!!!!!!!!!!!!!! Add by Rui Zhang!!!!!!!!!!!!!
+
     implicit none
     character(pathlen) :: nlfile = 'mkgrd.mnl'
-    character(LEN=256) :: finfolist
-    logical :: exit_loop
-    integer :: start_count, end_count, count_rate
-    real :: elapsed_time_block
+    character(LEN=256) :: finfolist, lndname
+    character(5) :: modec, stepc, nxpc
+    logical :: exit_loop, fexists
     io6 = 6! If run is sequential, default choice is to set io6 to standard output unit 6.
-
     ! Initialize HDF5 library
 
     !call h5open_f(hdferr)
-    CALL getarg(1, nlfile) 
+    CALL getarg(1, nlfile)
     ! get nml name from command line. For example: if execute ./mkgrd.x ../mkgrd.nml ! Add comment by Rui Zhang
-    ! nlfile = ../mkgrd.nml ! Add comment by Rui Zhang 
+    ! nlfile = ../mkgrd.nml ! Add comment by Rui Zhang
     ! Read Fortran namelist
     call read_nl(nlfile)
-    
-    ! file_dir = trim(base_dir)//trim(expnme)//'/makegrid/'
+
     file_dir = trim(base_dir) // trim(expnme) // '/'
     CALL execute_command_line('rm -rf '//trim(file_dir)) ! rm old filedir
     CALL execute_command_line('mkdir -p '//trim(file_dir)//"contain/") ! 为啥这里要有一个这个
@@ -84,59 +80,110 @@ program main
     CALL execute_command_line('mkdir -p '//trim(file_dir)//"threshold/")
     CALL execute_command_line('mkdir -p '//trim(file_dir)//"tmpfile/")
 
-    ! Initialize, execute, and end olam run
-
-    call init_consts()
-
-    call gridinit()
-
     finfolist = trim(file_dir)//'result/namelist.save' !
     CALL execute_command_line('cp '//trim(nlfile)//' '//trim(finfolist)) ! cp ../mkgrd.nml finfolist
 
-    if( (mode == 6) .or. (mode == 3) )then
+    if ((mode == 6) .or. (mode == 3)) then
         print*, 'mode set as ', mode
+    else if (mode == 4) then
+        print*, 'mode set as ', mode, "mode4_gridtype = ", mode4_gridtype
+        if (refine) then
+            print*, "turn refine from TRUE to FALSE"
+            refine = .false.
+        else
+            print*, "refine is FALSE"
+        end if
+        if ((mode4_gridtype /= 'lonlat' ) .and. &
+            (mode4_gridtype /= 'lambert') .and. &
+            (mode4_gridtype /= 'cubical')) stop "ERROR! mode4_gridtype mismatch" 
     else
-        stop 'mode can be only set as 6 or 3'
+        stop 'mode can be only set as 3 or 4 or 6'
     end if
-    
+
+    if (mode == 4) then
+        write(io6, *) 'mode4mesh_make start'
+        ! if mode4_gridtype == 'lambert' need change the DmArea Range
+        CALL mode4mesh_make()
+        write(io6, *) 'mode4mesh_make complete'
+        print*, ""
+    else
+        inquire(file = mode_filedir, exist = fexists)
+        if (fexists) then
+            ! check the file in the mode_filedir
+            write(modec, '(I1.1)') mode
+            write(nxpc, '(I4.4)') NXP
+            write(stepc, '(I2.2)') step
+            lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '.nc4'
+            CALL execute_command_line('cp '//trim(mode_filedir)//' '//trim(lndname))
+            write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+            write(io6, *) 'grid_write: opening file:', lndname
+            write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+
+            if (refine == .false.) CALL execute_command_line('cp '//trim(lndname)//' &
+                '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_mode'//trim(modec)//'.nc4')
+        else
+            ! Initialize, execute, and end olam run
+
+            call init_consts()
+
+            call gridinit()
+        end if
+    end if
 
     write(io6, *) 'data preporcess start' 
     CALL data_preprocess() ! Pre set some necessary data such as cellarea and landtype
     write(io6, *) 'data preporcess complete'
+    print*, ""
 
     write(io6, *) 'area judge start'
     CALL Area_judge() ! Determination of DmArea(RfArea)
     write(io6, *) 'area judge complete'
+    print*, ""
 
     if (refine) then
-        if ((refine_num_landtypes .eqv. .false.) .and. &
-            (refine_area_mainland .eqv. .false.) .and. &
-            (all(refine_onelayer  .eqv. .false.)).and. &
-            (all(refine_twolayer  .eqv. .false.))) then
-            stop "Error! MUst one of TRUE in the refine_num_landtypes or &
-                  refine_area_mainland or refine_onelayer or refine_twolayer &
-                  when refine is TRUE"
-        end if
         step = 0 
         if (max_iter <= step) stop 'Error! max_iter must more than zero'
         write(io6, *) 'make grid with refine mesh'
-             
-        write(io6, *) 'Threshold_Read start'
-        CALL Threshold_Read() ! var, var_m_s,.... 
-        write(io6, *) 'Threshold_Read complete'
+        print*, ""
+ 
+        if (th_file_read) then
+            if (max_iter == 1) then
+                print*, "read thresholdfile directly without threshold calculate"
+            else
+                stop "ERROR if th_file_read == .true. max_iter only set as 1"
+            end if
+        else
+            if ((refine_num_landtypes .eqv. .false.) .and. &
+                (refine_area_mainland .eqv. .false.) .and. &
+                (all(refine_onelayer  .eqv. .false.)).and. &
+                (all(refine_twolayer  .eqv. .false.))) then
+                stop "Error! MUst one of TRUE in the refine_num_landtypes or &
+                      refine_area_mainland or refine_onelayer or refine_twolayer &
+                      when refine is TRUE"
+            end if
+            write(io6, *) 'Threshold_Read start'
+            CALL Threshold_Read() ! var, var_m_s,.... 
+            write(io6, *) 'Threshold_Read complete'
+            print*, ""
+        end if
 
         ! After merge refine_sjx and refine_lbx into refine_ustrgrid
-        write(io6, *) 'step =',step
+        write(io6, *) 'step =', step
         write(io6, *) 'start do-while'
-        write(io6, *) 'max_iter =',max_iter
+        write(io6, *) 'max_iter =', max_iter
         exit_loop = .false.
         do while(step < max_iter)
-
-            write(io6, *) 'Get_Contain start'
-            ! only calculate for newly-generated tri or polygon
-            CALL Get_Contain()
-            write(io6, *) 'Get_Contain complete'
-
+           
+            if (th_file_read) then
+                print*, "read thresholdfile directly without threshold calculate"
+                print*, "jump out Get_Contain()" 
+            else
+                write(io6, *) 'Get_Contain start'
+                ! only calculate for newly-generated tri or polygon
+                CALL Get_Contain()
+                write(io6, *) 'Get_Contain complete'
+            end if
+            
             write(io6, *) 'GetThreshold start'
             CALL GetThreshold(exit_loop)
             if (exit_loop) then
@@ -147,18 +194,16 @@ program main
             end if
             write(io6, *) 'GetThreshold complete'
 
-            write(io6, *) 'refine_lbx start'
-            ! what is the different between tri and polygon refinement?
-            CALL refine_lbx(exit_loop)
+            write(io6, *) 'refine_loop start'
+            CALL refine_loop(exit_loop)
             if (exit_loop) then
                 refine = .false.
                 print *, 'Exiting loop due to ref_sjx equal to zero! &
                           turn refine from to True to False !'
                 exit  ! 退出外部的 DO WHILE 循环
             end if
-            write(io6, *) 'refine_lbx complete'
+            write(io6, *) 'refine_loop complete'
 
-            !CALL refine_ustrgrid(mode)!mode as a para to choose different choice
             step = step + 1
             write(io6, *) 'step=',step
         end do
@@ -211,19 +256,22 @@ subroutine read_nl(file)
     nxp                  = nl%nxp
     openmp               = nl%openmp
     refine               = nl%refine
-    nlons_source         = nl%nlons_source
-    nlats_source         = nl%nlats_source
-    no_caculate_fraction = nl%no_caculate_fraction
     mode                 = nl%mode
     base_dir             = nl%base_dir
     source_dir           = nl%source_dir
-    ndm_domain           = nl%ndm_domain
-    edgee(1:ndm_domain)  = nl%edgee(1:ndm_domain)
-    edgew(1:ndm_domain)  = nl%edgew(1:ndm_domain)
-    edges(1:ndm_domain)  = nl%edges(1:ndm_domain)
-    edgen(1:ndm_domain)  = nl%edgen(1:ndm_domain)
     lcs                  = nl%lcs
-    maxlc                = nl%maxlc
+    mode_filedir         = nl%mode_filedir
+    if (mode == 4) then
+        ndm_domain       = 1
+        mode4_gridtype   = nl%mode4_gridtype
+        mode4_datatype   = nl%mode4_datatype
+    else ! only use for mode = 3 or 6
+        ndm_domain           = nl%ndm_domain
+        edgee(1:ndm_domain)  = nl%edgee(1:ndm_domain)
+        edgew(1:ndm_domain)  = nl%edgew(1:ndm_domain)
+        edges(1:ndm_domain)  = nl%edges(1:ndm_domain)
+        edgen(1:ndm_domain)  = nl%edgen(1:ndm_domain)
+    end if
     if (refine) then
         open(10, status = 'OLD', file = file)
         ! READ GRID POINT, MODEL OPTIONS, AND PLOTTING INFORMATION FROM THE NAMELIST
@@ -241,6 +289,11 @@ subroutine read_nl(file)
 
         max_iter              = rl%max_iter
         max_sa_iter           = rl%max_sa_iter
+        th_file_read          = rl%th_file_read
+        if (th_file_read) then
+            th_filedir        = rl%th_filedir
+            return
+        end if
         th_num_landtypes      = rl%th_num_landtypes
 
         refine_num_landtypes  =  rl%refine_num_landtypes
@@ -314,6 +367,253 @@ subroutine read_nl(file)
 
 end subroutine read_nl
 
+subroutine mode4mesh_make()
+
+    use consts_coms, only : r8, pathlen, io6, file_dir, EXPNME, NXP, mode, refine, mode4_gridtype, mode4_datatype, mode_filedir, edgee, edgew, edges, edgen
+    use netcdf
+    use lonlatmesh_coms, only : mesh
+    USE refine_vars, only : step
+    use MOD_file_preprocess, only : Mode4_Mesh_Save ! Add by Rui Zhang
+
+    implicit none
+    logical :: fexists
+    integer :: i, j, idx
+    integer :: nlon_cal, nlat_cal
+    integer :: ncid, dimID_lon, dimID_lat
+    integer :: lon_points, lat_points, bound_points, mode4_points
+    integer, dimension(10) :: varid
+    real(r8) :: lon_start, lat_start, lon_end, lat_end, lon_grid_interval, lat_grid_interval
+    real(r8), dimension(:),  allocatable :: lon_center, lat_center, lon_bound, lat_bound
+    real(r8), dimension(:, :), allocatable :: lon_vert, lat_vert, lonlat_bound
+    integer,  dimension(:, :), allocatable :: ngr_bound
+    character(pathlen) :: lndname
+    character(5) :: nxpc, stepc
+    character(10) :: mesh_type
+    
+    lndname = trim(mode_filedir)
+    print*, lndname
+    if (mode4_gridtype == 'lonlat') then
+        if (mode4_datatype == 'ncfile') then
+            !  如果从外部读入信息，要求读入的是网格的中心点
+            CALL CHECK(NF90_OPEN(lndname, nf90_nowrite, ncid))
+            CALL CHECK(NF90_INQ_DIMID(ncid, "lon", dimID_lon))
+            CALL CHECK(NF90_INQ_DIMID(ncid, "lat", dimID_lat))
+            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lon, len = lon_points))
+            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lat, len = lat_points))
+            allocate(lon_center(lon_points))
+            allocate(lat_center(lat_points))
+            CALL CHECK(NF90_INQ_VARID(ncid, "long", varid(1)))
+            CALL CHECK(NF90_INQ_VARID(ncid, "lati", varid(2)))
+            CALL CHECK(NF90_GET_VAR(ncid, varid(1), lon_center))
+            CALL CHECK(NF90_GET_VAR(ncid, varid(2), lat_center))
+            CALL CHECK(NF90_CLOSE(ncid))
+            
+            lon_grid_interval = lon_center(2) - lon_center(1)
+            lat_grid_interval = lat_center(2) - lat_center(1)
+            allocate(lon_bound(lon_points + 1))
+            allocate(lat_bound(lat_points + 1))
+            lon_bound(1 : lon_points) = lon_center             - lon_grid_interval / 2.0
+            lon_bound(1 + lon_points) = lon_center(lon_points) + lon_grid_interval / 2.0
+            where(lon_center > 180.) lon_center = lon_center - 360. ! between -180. and 180.
+            where(lon_bound  > 180.) lon_bound  = lon_bound  - 360. ! between -180. and 180.
+            lat_bound(1 : lat_points) = lat_center             - lat_grid_interval / 2.0
+            lat_bound(1 + lat_points) = lat_center(lat_points) + lat_grid_interval / 2.0
+        else if (mode4_datatype == 'namelist') then
+            namelist /lonlatmesh/ mesh
+            ! OPEN THE NAMELIST FILE
+            inquire(file = lndname, exist = fexists)
+            if (.not. fexists) then
+                write(*, *) "The namelist file " // trim(lndname) // " is missing."
+                stop "Stopping model run."
+            endif
+            open(10, status = 'OLD', file = lndname)
+            ! READ GRID POINT, MODEL OPTIONS, AND PLOTTING INFORMATION FROM THE NAMELIST
+            REWIND(10)
+            !print*,nl
+            read(10, nml = lonlatmesh)
+            close(10)
+            write(*, nml = lonlatmesh)
+
+            mesh_type              = mesh%mesh_type
+            lon_start              = mesh%lon_start
+            lon_end                = mesh%lon_end
+            lon_grid_interval      = mesh%lon_grid_interval
+            lon_points             = mesh%lon_points
+            lat_start              = mesh%lat_start
+            lat_end                = mesh%lat_end
+            lat_grid_interval      = mesh%lat_grid_interval
+            lat_points             = mesh%lat_points
+            ! make sure Data self consistency
+            nlon_cal = int( (lon_end - lon_start) / lon_grid_interval) + 1
+            nlat_cal = int( (lat_end - lat_start) / lat_grid_interval) + 1
+            if (nlon_cal /= lon_points) then
+                print*, "nlon_cal = ", nlon_cal
+                print*, "lon_points = ", lon_points
+                stop 'ERROR nlon_cal /= lon_points'
+            else if (nlat_cal /= lat_points) then
+                print*, "nlat_cal = ", nlat_cal
+                print*, "lat_points = ", lat_points
+                stop 'ERROR nlat_cal /= lat_points'
+            end if
+            
+            if (mesh_type == 'center') then
+                allocate(lon_center(lon_points))
+                allocate(lat_center(lat_points))
+                allocate(lon_bound(lon_points + 1))
+                allocate(lat_bound(lat_points + 1))
+                lon_center = lon_start + lon_grid_interval * ([1:lon_points] - 1)
+                lat_center = lat_start + lat_grid_interval * ([1:lat_points] - 1)
+                lon_bound(1 : lon_points) = lon_center - lon_grid_interval / 2.0
+                lon_bound(1 + lon_points) = lon_end    + lon_grid_interval / 2.0
+                lat_bound(1 : lat_points) = lat_center - lat_grid_interval / 2.0
+                lat_bound(1 + lat_points) = lat_end    + lat_grid_interval / 2.0
+            else if (mesh_type == 'bound') then
+                allocate(lon_bound(lon_points))
+                allocate(lat_bound(lat_points))
+                ! 因为读入是边界值，网格数量比边界个数少一个
+                lon_points = lon_points - 1
+                lat_points = lat_points - 1
+                allocate(lon_center(lon_points))
+                allocate(lat_center(lat_points))
+                lon_bound(1 : lon_points) = lon_start + lon_grid_interval * ([1:lon_points] - 1)
+                lon_bound(1 + lon_points) = lon_end
+                lat_bound(1 : lat_points) = lat_start + lat_grid_interval * ([1:lat_points] - 1)
+                lat_bound(1 + lat_points) = lat_end
+                lon_center = (lon_bound(1 : lon_points) + lon_bound(2 : 1 + lon_points)) / 2.0
+                lat_center = (lat_bound(1 : lat_points) + lat_bound(2 : 1 + lat_points)) / 2.0
+            else
+                stop "error mesh_type mismatch"
+            end if
+        else
+            stop "error mode4_datatype must choose 'ncfile' or 'namelist' please check!"
+        end if
+
+        write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+        print*, "lonlat bound range"
+        print*, "lon_bound(1) = ", lon_bound(1)
+        print*, "lon_bound(1 + lon_points) = ", lon_bound(1 + lon_points)
+        print*, "lat_bound(1) = ", lat_bound(1)
+        print*, "lat_bound(1 + lat_points) = ", lat_bound(1 + lat_points)
+        write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+        print*, ""
+        
+        write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+        print*, "lon_points = ", lon_points
+        print*, "lat_points = ", lat_points
+        print*, "lonlat start end interval"
+        print*, "lon_center start from :", lon_center(1)
+        print*, "lon_center start end  :", lon_center(lon_points)
+        print*, "lon_grid_interval     :", lon_grid_interval
+        print*, "lat_center start from :", lat_center(1)
+        print*, "lat_center start end  :", lat_center(lat_points)
+        print*, "lat_grid_interval     :", lat_grid_interval
+        write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+        print*, ""
+        where(lon_center > 180.)  lon_center = lon_center - 360. ! between -180. and 180.
+        where(lon_bound  > 180.)  lon_bound  = lon_bound  - 360. ! between -180. and 180.
+        NXP = lon_points / 5 ! compare with NXP in triangle or polygon   
+
+        ! turn lon_bound/lat_bound(1D) to lon_vert.lat_vert(2D)
+        print*, "turn lon_bound/lat_bound(1D) to lon_vert/lat_vert(2D) start"
+        allocate(lon_vert(lon_points + 1, lat_points + 1)); lon_vert = 0.
+        allocate(lat_vert(lon_points + 1, lat_points + 1)); lat_vert = 0.
+        do j = 1, lat_points + 1, 1
+            lon_vert(:, j) = lon_bound
+        end do 
+        do i = 1, lon_points + 1, 1
+            lat_vert(i, :) = lat_bound 
+        end do
+        print*, "turn lon_bound/lat_bound(1D) to lon_vert.lat_vert(2D) finish"
+        print*, ""
+
+    else if (mode4_gridtype == 'lambert') then
+        if (mode4_datatype == 'ncfile') then
+            CALL CHECK(NF90_OPEN(lndname, nf90_nowrite, ncid))
+            CALL CHECK(NF90_INQ_DIMID(ncid, "xi_vert",  dimID_lon))
+            CALL CHECK(NF90_INQ_DIMID(ncid, "eta_vert", dimID_lat))
+            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lon, len = lon_points))
+            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lat, len = lat_points))
+            allocate(lon_vert(lon_points, lat_points))
+            allocate(lat_vert(lon_points, lat_points))
+            CALL CHECK(NF90_INQ_VARID(ncid, "lon_vert", varid(1)))
+            CALL CHECK(NF90_INQ_VARID(ncid, "lat_vert", varid(2)))
+            CALL CHECK(NF90_GET_VAR(ncid, varid(1), lon_vert))
+            CALL CHECK(NF90_GET_VAR(ncid, varid(2), lat_vert))
+            CALL CHECK(NF90_CLOSE(ncid))
+            ! 因为读入是边界值，网格数量比边界个数少一个
+            lon_points = lon_points - 1
+            lat_points = lat_points - 1
+        end if
+    else if (mode4_gridtype == 'cubical') then
+        stop "error lambert or cubical can not use now!"
+    else
+        stop "error mode4_gridtype must choose 'lonlat' or 'lambert' or 'cubical' please check!"  
+    end if
+
+    ! turn 1D to 2D
+    print*, "lonlat_bound and ngr_bound calculate start"
+    bound_points = (lon_points + 1) * (lat_points + 1) + 1
+    mode4_points = lon_points * lat_points + 1
+    allocate(lonlat_bound(bound_points, 2)); lonlat_bound = 0.
+    allocate(ngr_bound(4, mode4_points)); ngr_bound = 1
+
+    idx = 1
+    do j = 1, lat_points + 1, 1
+        do i = 1, lon_points + 1, 1
+            idx = idx + 1
+            lonlat_bound(idx, :) = [lon_vert(i, j), lat_vert(i, j)]
+        end do
+    end do
+    print*, "lonlat_bound calculate finish"
+    print*, ""
+
+    ! ngr_bound calculate, never start from 1 !
+    idx = 1
+    do j = 1, lat_points, 1
+        do i = 1, lon_points, 1
+            idx = idx + 1
+            ngr_bound(:, idx) = [i + (j - 1) * (lon_points + 1),     &
+                                 i + (j - 1) * (lon_points + 1) + 1, &
+                                 i +  j      * (lon_points + 1) + 1, &
+                                 i +  j      * (lon_points + 1)]
+        end do
+    end do
+    ngr_bound = ngr_bound + 1 ! never start from 1 !
+    print*, "lonlat_bound and ngr_bound calculate finish"
+
+    ! set values for DmArea Range
+    print*, "set values for DmArea Range start "
+    edgew(1) = max(minval(lonlat_bound(:, 1)), -180.) 
+    edgee(1) = min(maxval(lonlat_bound(:, 1)),  180.)
+    edgen(1) = min(maxval(lonlat_bound(:, 2)),   90.)
+    edges(1) = max(minval(lonlat_bound(:, 2)),  -90.)
+    if (lon_points * lon_grid_interval >= 360.) then
+        edgew(1) = -180.
+        edgee(1) =  180.
+    end if
+    print*, "edgew = ", edgew(1)
+    print*, "edgee = ", edgee(1)
+    print*, "edgen = ", edgen(1)
+    print*, "edges = ", edges(1)
+    print*, "set values for DmArea Range finish"
+    print*, ""
+
+    write(nxpc, '(I4.4)') NXP
+    write(stepc, '(I2.2)') step
+    lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '.nc4'
+    write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+    write(io6, *) 'grid_write: opening file:', lndname
+    write(io6, *) 'mode4_points : ', mode4_points
+    write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+    ! initial file without any refine
+    CALL Mode4_Mesh_Save(lndname, bound_points, mode4_points, lonlat_bound, ngr_bound)
+
+    if (refine == .false.) call execute_command_line('cp '//trim(lndname)//' &
+        '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_mode4.nc4')
+
+    print*, "mode4mesh_make finish"
+
+end subroutine mode4mesh_make
 
 subroutine init_consts()
     use consts_coms
@@ -323,11 +623,8 @@ subroutine init_consts()
     ! Standard (Earth) values
 
     erad = 6371.22e3          ! Earth radius [km]
-    omega = 7.29212e-5         ! Earth rotational angular velocity
-    xscale = 1.0
-
+    
     ! Secondary values
-
     erad2 = erad * 2.
     erad4 = erad * 4.
     eradsq = erad * erad
@@ -335,7 +632,6 @@ subroutine init_consts()
     eradi = 1.0 / erad
     erad2sq = erad2 * erad2
     dlat = erad * pio180
-    omega2 = omega * 2.
 
 end subroutine init_consts
 
@@ -448,8 +744,7 @@ subroutine gridfile_write()
     allocate(wp(nwa,2)); wp(:,1) = GLONW; wp(:,2) = GLATW
 
     ! Execute the command
-    !call execute_command_line('mkdir -p '//trim(base_dir)//'/'//trim(expnme))
-    write(nxpc, '(I3.3)')NXP
+    write(nxpc, '(I4.4)')NXP
     write(stepc, '(I2.2)') step
     ! Open gridfile
     lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '.nc4'
@@ -466,8 +761,8 @@ subroutine gridfile_write()
     
     deallocate(ngrwm, ngrmw, mp, wp)
 
-    if(refine == .false.)then
-       if(mode == 3)then
+    if (refine == .false.) then
+       if (mode == 3) then
           call execute_command_line('cp '//trim(lndname)//' '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_sjx.nc4')
        else if(mode == 6)then
           call execute_command_line('cp '//trim(lndname)//' '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_lbx.nc4')

@@ -11,6 +11,6 @@
 #SBATCH -t 0-1:00
 ulimit -s unlimited 
 
-source /home/zhangr23/.bashrc_CoLM202X_intel
+source ~/.bashrc_CoLM202X_intel
 make
 
