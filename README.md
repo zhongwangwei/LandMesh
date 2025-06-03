@@ -2,7 +2,7 @@
 
 EarthMesh is a grid generation tool for land surface, ocean, and atmospheric models. This is an update from v1 which was primarily for land surface models. The `mesh_type` variable in `v2/mkgrd.F90` (which can be `landmesh`, `oceanmesh`, or `earthmesh`) determines the type of grid generated.
 
-This repository contains the grid generation tool for the Common Land Model version 2024 (CoLM2024). It allows for creating unstructured meshes with adaptive refinement based on various surface characteristics.
+This repository contains the grid generation tool for the Common Land Model version 2024 (CoLM2024), FVCOM, MPAS, OLAM and so on. It allows for creating unstructured meshes with adaptive refinement based on various surface characteristics.
 
 ## Key Features
 
@@ -84,9 +84,15 @@ For questions or support, please contact Zhongwang Wei (zhongwang007@gmail.com).
 
 ## REVISION HISTORY
 ! 2025.01.09 The Initial version of V2 is being developed by Rui Zhang
+
 ! 2025.01.09 V1 has been archived by Zhongwang Wei
+
 ! 2024.07.19 Zhongwang Wei
+
 ! 2023.10.28  Hanwen Fan and Zhongwang Wei @ SYSU
+
 ! 2023.02.21  Zhongwang Wei @ SYSU
+
 ! 2021.12.02  Zhongwang Wei @ SYSU
+
 ! 2020.10.01  Zhongwang Wei @ SYSU
