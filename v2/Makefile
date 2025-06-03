@@ -14,19 +14,21 @@ EXECUTABLE = mkgrd.x
 
 OBJS = \
 	consts_coms.o \
-      	MOD_Get_Distance.o\
       	icosahedron.o \
       	blas.o \
       	lapack.o\
 	MOD_file_preprocess.o\
 	MOD_data_preprocess.o\
+	MOD_grid_preprocess.o\
       	MOD_Area_judge.o\
-	MOD_Threshold_Read.o\
 	MOD_GetContain.o\
-      	MOD_GetThreshold.o\
+      	MOD_GetRef.o\
 	MOD_refine.o\
+        MOD_mask_postproc.o\
 	mkgrd.o\
-
+#        MOD_Threshold_Read.o
+#        MOD_Get_Distance.o
+#        MOD_postprocess.o
 #        MOD_refine_sjx.o
 #        MOD_refine_lbx.o
 #        MOD_refine_lbx_step2.o

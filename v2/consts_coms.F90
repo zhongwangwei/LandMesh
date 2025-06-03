@@ -33,7 +33,6 @@ Module consts_coms
 
     implicit none
 
-
     ! Single (real*4) and double (real*8) precision real kinds:
     integer, parameter :: r4 = selected_real_kind(6, 37)
     integer, parameter :: r8 = selected_real_kind(13, 300)
@@ -63,66 +62,69 @@ Module consts_coms
     integer, parameter :: maxremote = 30   ! Max # of remote send/recv processes
     integer, parameter :: pathlen = 256  ! Max length of character strings for file paths
 
-    character(pathlen) :: tmpdir = "/tmp"
     character(64) :: expnme
     character(pathlen) :: base_dir
     character(pathlen) :: source_dir
-    !!!!!!!!!!!!!!!!!!!!! Add by Rui Zhang !!!!!!!!!!!!!
     character(pathlen) :: file_dir
-    character(pathlen) :: mode_filedir
-    character(16) :: mode4_datatype
-    character(16) :: mode4_gridtype
-    !!!!!!!!!!!!!!!!!!!!! Add by Rui Zhang !!!!!!!!!!!!!
+    character(pathlen) :: mode_file
+    character(pathlen) :: mode_file_description
+    character(pathlen) :: mask_domain_fprefix
+    character(pathlen) :: mask_patch_fprefix
+    character(16) :: mesh_type
+    character(16) :: mask_domain_type
+    character(16) :: mask_patch_type
+    character(16) :: mode_grid
     character(16) :: lcs
+    
     real :: rinit = 0.0
     real(r8) :: rinit8 = 0.0_r8
-
+    real(r8) :: Extr_sjx_GXR0(2) = 0.0_r8
+    integer :: iunit = 10
+    integer :: step = 1
     integer :: io6
     integer :: nxp
-    integer :: mode
+    integer :: GXR
     integer :: openmp
-    integer :: ndm_domain
+    integer :: mask_domain_ndm
+    integer :: mask_patch_ndm
     logical :: refine
-    ! logical :: no_caculate_fraction
+    logical :: Isolated_Ocean
+    logical :: mask_restart
+    logical :: mask_patch_on
     integer :: nlons_source
     integer :: nlats_source
-    ! integer :: nlons_dest
-    ! integer :: nlats_dest
     integer :: maxlc
-    real(r8) :: edgee(10)
-    real(r8) :: edgew(10)
-    real(r8) :: edges(10)
-    real(r8) :: edgen(10)
+    integer :: num_vertex
+    integer :: num_center
+    integer :: num_mp_step(0:9) = 1 ! 
+    integer :: num_wp_step(0:9) = 1 ! 
+    real(r8) :: mask_sea_ratio
 
     Type oname_vars
         !!    RUNTYPE/NAME
-        character(64) :: expnme = 'OLAM test'
+        character(64) :: expnme = '/tmp'
+        integer :: nxp = 0
+        integer :: GXR = 0
         character(pathlen) :: base_dir = ' /tmp'
         character(pathlen) :: source_dir = ' /tmp'
-        character(pathlen) :: mode_filedir = ' /tmp'
-        character(16) :: mode4_gridtype = 'lonlat'
-        character(16) :: mode4_datatype = 'ncfile'
-        character(16) :: lcs = 'igbp'
-        !!    GRID SPECIFICATIONS
-        integer :: nxp = 0
-        integer :: openmp = 16
-        integer :: mode = 6
-        ! integer :: maxlc = 17
-
+        character(16) :: mesh_type = '/tmp'
+        character(16) :: mode_grid = '/tmp'
+        character(pathlen) :: mode_file = ' /tmp'
+        character(pathlen) :: mode_file_description = ' /tmp'
         logical :: refine = .FALSE.
-        ! logical :: no_caculate_fraction   =    .FALSE.
-        ! integer :: nlons_source           =    43200
-        ! integer :: nlats_source           =    21600
-        ! integer :: nlons_dest             =    43200
-        ! integer :: nlats_dest             =    21600
-        integer :: ndm_domain             =    1
-        real(r8) :: edgee(10)             =    0.
-        real(r8) :: edgew(10)             =    0.
-        real(r8) :: edges(10)             =    0.
-        real(r8) :: edgen(10)             =    0.
-
+        character(16) :: lcs = '/tmp'
+        integer :: openmp = 16
+        real(r8) :: mask_sea_ratio             =    0.5
+        logical :: Isolated_Ocean = .FALSE.
+        logical :: mask_restart = .FALSE.
+        character(16) :: mask_domain_type = '/tmp'
+        character(pathlen) :: mask_domain_fprefix = '/tmp'
+        logical :: mask_patch_on = .false.
+        character(16) :: mask_patch_type = '/tmp'
+        character(pathlen) :: mask_patch_fprefix = '/tmp'
     End Type oname_vars
     type (oname_vars) :: nl
+
 End Module
 !===============================================================================
 
@@ -133,18 +135,18 @@ Module lonlatmesh_coms
     use consts_coms, only : r8 
     implicit none
 
-    character(10) :: mesh_type
+    character(16) :: definition
     real(r8)      :: lon_start
     real(r8)      :: lon_end
     real(r8)      :: lon_grid_interval
-    integer       :: lon_points 
+    integer       :: lon_points
     real(r8)      :: lat_start     
     real(r8)      :: lat_end         
     real(r8)      :: lat_grid_interval
     integer       :: lat_points
 
     Type mesh_vars
-        character(10) :: mesh_type         = 'center'
+        character(16) :: definition        = 'center'
         real(r8)      :: lon_start         = 0.
         real(r8)      :: lon_end           = 359. 
         real(r8)      :: lon_grid_interval = 0.0625
@@ -158,6 +160,37 @@ Module lonlatmesh_coms
 End Module
 !===============================================================================
 
+! Add by Rui Zhang for fvcommesh_coms
+!===============================================================================
+Module fvcommesh_coms
+
+    use consts_coms, only : r8, pathlen
+    implicit none
+
+    character(pathlen) :: casename
+    character(pathlen) :: Dem_file
+    character(16)      :: lon_name
+    character(16)      :: lat_name
+    character(16)      :: dep_name
+    real(r8)           :: mindepth
+    real(r8)           :: maxdepth 
+    real(r8)           :: limslope
+    integer            :: nlons_Dem
+    integer            :: nlats_Dem
+
+    Type mesh_vars
+        character(pathlen) :: casename = 'CASENAME'
+        character(pathlen) :: Dem_file = '/tmp'
+        character(16)      :: lon_name = '/tmp'
+        character(16)      :: lat_name = '/tmp'
+        character(16)      :: dep_name = '/tmp'
+        real(r8)           :: mindepth = 1.
+        real(r8)           :: maxdepth = 300. 
+        real(r8)           :: limslope = 0.02
+    End Type mesh_vars
+    type (mesh_vars) :: mesh
+End Module
+!===============================================================================
 
 Module mem_grid
     use consts_coms, only : r8
@@ -896,58 +929,91 @@ Module refine_vars
     use consts_coms, only : r8
 
     implicit none
-
-    integer :: ndm_refine              =  3
-    integer :: step                    =  0
-    real(r8) :: edgee_rf(10)           =  0.
-    real(r8) :: edgew_rf(10)           =  0.
-    real(r8) :: edges_rf(10)           =  0.
-    real(r8) :: edgen_rf(10)           =  0.
-
-    integer :: max_iter               =  4
-    integer :: max_sa_iter            =  500
-    integer :: th_num_landtypes       =  12
     
-    real(r8) :: th_area_mainland      =  0.6
-    real(r8) :: th_onelayer(4)        =  999.
-    real(r8) :: th_twolayer(10, 2)    =  999.
+    character(16)  :: refine_setting           = '/tmp'
+    character(16)  :: mask_refine_spc_type     = '/tmp'
+    character(256) :: mask_refine_spc_fprefix  = '/tmp'
+    character(16)  :: mask_refine_cal_type     = '/tmp'
+    character(256) :: mask_refine_cal_fprefix  = '/tmp'
+    integer :: mask_refine_ndm(0:9)   =  0
+    integer :: max_iter               =  0
+    integer :: max_iter_spc           =  0
+    integer :: max_iter_cal           =  0
+    integer :: max_sa_iter            =  100
+    integer :: halo(10)               =  0
+    integer :: max_transition_row(10)     =  0
 
-    logical :: th_file_read           = .FALSE.
+    integer :: th_num_landtypes       =  12
+    real(r8) :: th_area_mainland      =  0.6
+    real(r8) :: th_sea_ratio(2)       =  0.5
+    real(r8) :: th_Rossby_radius      =  0.5
+    real(r8) :: th_onelayer_Lnd(4)    =  999.
+    real(r8) :: th_onelayer_Ocn(8)    =  999.
+    real(r8) :: th_onelayer_Earth(2)  =  999.
+    real(r8) :: th_twolayer_Lnd(10, 2)=  999.
+
+    logical :: Istransition           = .FALSE.
+    logical :: weak_concav_eliminate  = .FALSE.
+    logical :: refine_spc             = .FALSE.
+    logical :: refine_cal             = .FALSE.
     logical :: refine_num_landtypes   = .FALSE.
     logical :: refine_area_mainland   = .FALSE.
-    logical :: refine_onelayer(4)     = .FALSE.
-    logical :: refine_twolayer(10)    = .FALSE.
-    character(256) :: th_filedir      = '/tmp'
+    logical :: refine_sea_ratio       = .FALSE.
+    logical :: refine_Rossby_radius   = .FALSE.
+    logical :: refine_onelayer_Lnd(4)     = .FALSE.
+    logical :: refine_onelayer_Ocn(8)     = .FALSE.
+    logical :: refine_onelayer_Earth(2)   = .FALSE.
+    logical :: refine_twolayer_Lnd(10)    = .FALSE.
 
     Type threshold_vars
-        integer :: ndm_refine
-        
-        real(r8) :: edgee_rf(10)
-        real(r8) :: edgew_rf(10)
-        real(r8) :: edges_rf(10)
-        real(r8) :: edgen_rf(10)
 
-        integer :: max_iter
-        integer :: max_sa_iter
-        integer :: th_num_landtypes
-        logical  :: th_file_read          =  .FALSE.
-        logical  :: refine_num_landtypes  =  .FALSE.
-        logical  :: refine_area_mainland  =  .FALSE.
-        logical  :: refine_lai_m          =  .FALSE.
-        logical  :: refine_lai_s          =  .FALSE.
-        logical  :: refine_slope_m        =  .FALSE.
-        logical  :: refine_slope_s        =  .FALSE.
-        logical  :: refine_k_s_m          =  .FALSE.
-        logical  :: refine_k_s_s          =  .FALSE.
-        logical  :: refine_k_solids_m     =  .FALSE.
-        logical  :: refine_k_solids_s     =  .FALSE.
-        logical  :: refine_tkdry_m        =  .FALSE.
-        logical  :: refine_tkdry_s        =  .FALSE.
-        logical  :: refine_tksatf_m       =  .FALSE.
-        logical  :: refine_tksatf_s       =  .FALSE.
-        logical  :: refine_tksatu_m       =  .FALSE.
-        logical  :: refine_tksatu_s       =  .FALSE.
-        character(256) :: th_filedir      = '/tmp'
+        character(16)  :: mask_refine_spc_type     = '/tmp'
+        character(256) :: mask_refine_spc_fprefix  = '/tmp'
+        character(16)  :: mask_refine_cal_type     = '/tmp'
+        character(256) :: mask_refine_cal_fprefix  = '/tmp'
+        integer  :: max_sa_iter
+        integer  :: max_iter_spc
+        integer  :: max_iter_cal
+        integer  :: halo(10)
+        integer  :: max_transition_row(10)
+        integer  :: th_num_landtypes
+        logical  :: Istransition          = .FALSE.
+        logical  :: weak_concav_eliminate = .FALSE.
+        logical  :: refine_spc            = .FALSE.
+        logical  :: refine_cal            = .FALSE.
+
+        ! use for landmesh
+        logical  :: refine_num_landtypes  = .FALSE.
+        logical  :: refine_area_mainland  = .FALSE.
+        logical  :: refine_lai_m          = .FALSE.
+        logical  :: refine_lai_s          = .FALSE.
+        logical  :: refine_slope_m        = .FALSE.
+        logical  :: refine_slope_s        = .FALSE.
+        logical  :: refine_k_s_m          = .FALSE.
+        logical  :: refine_k_s_s          = .FALSE.
+        logical  :: refine_k_solids_m     = .FALSE.
+        logical  :: refine_k_solids_s     = .FALSE.
+        logical  :: refine_tkdry_m        = .FALSE.
+        logical  :: refine_tkdry_s        = .FALSE.
+        logical  :: refine_tksatf_m       = .FALSE.
+        logical  :: refine_tksatf_s       = .FALSE.
+        logical  :: refine_tksatu_m       = .FALSE.
+        logical  :: refine_tksatu_s       = .FALSE.
+        ! use for oceanmesh
+        logical  :: refine_sea_ratio      = .FALSE.
+        logical  :: refine_Rossby_radius  = .FALSE.
+        logical  :: refine_sst_m          = .FALSE.
+        logical  :: refine_sst_s          = .FALSE.
+        logical  :: refine_ssh_m          = .FALSE.
+        logical  :: refine_ssh_s          = .FALSE.
+        logical  :: refine_eke_m          = .FALSE.
+        logical  :: refine_eke_s          = .FALSE.
+        logical  :: refine_sea_slope_m    = .FALSE.
+        logical  :: refine_sea_slope_s    = .FALSE.
+
+        ! use for earthmesh
+        logical  :: refine_typhoon_m      = .FALSE.
+        logical  :: refine_typhoon_s      = .FALSE.
 
         real(r8) :: th_area_mainland
         real(r8) :: th_lai_m
@@ -964,6 +1030,20 @@ Module refine_vars
         real(r8) :: th_tksatf_s(2)
         real(r8) :: th_tksatu_m(2)
         real(r8) :: th_tksatu_s(2)
+
+        real(r8) :: th_sea_ratio(2)
+        real(r8) :: th_Rossby_radius
+        real(r8) :: th_sst_m
+        real(r8) :: th_sst_s
+        real(r8) :: th_ssh_m
+        real(r8) :: th_ssh_s
+        real(r8) :: th_eke_m
+        real(r8) :: th_eke_s
+        real(r8) :: th_sea_slope_m
+        real(r8) :: th_sea_slope_s
+
+        real(r8) :: th_typhoon_m
+        real(r8) :: th_typhoon_s
 
 
     End Type threshold_vars
