@@ -1,16 +1,16 @@
 # EarthMesh
 
-EarthMesh is a grid generation tool for land surface, ocean, and atmospheric models. This is an update from v1 which was primarily for land surface models. The `mesh_type` variable in `v2/mkgrd.F90` (which can be `landmesh`, `oceanmesh`, or `earthmesh`) determines the type of grid generated.
+EarthMesh is a mesh generation tool for land surface, ocean, and atmospheric models. This is an update from v1 which was primarily for land surface models. The `mesh_type` variable in `v2/mkgrd.F90` (which can be `landmesh`, `oceanmesh`, or `earthmesh`) determines the type of mesh generated.
 
-This repository contains the grid generation tool for the Common Land Model version 2024 (CoLM2024), FVCOM, MPAS, OLAM and so on. It allows for creating unstructured meshes with adaptive refinement based on various surface characteristics.
+This repository contains the mesh generation tool for the Common Land Model version 2024 (CoLM2024), FVCOM, MPAS, OLAM and so on. It allows for creating unstructured meshes with adaptive refinement based on various surface characteristics and specified refinement based on user's intention.
 
 ## Key Features
 
-- Generates initial icosahedral or hexagonal grids
+- Generates well-centred Delaunay triangle and dual hexagonal meshs
 - Performs adaptive mesh refinement based on configurable thresholds
 - Supports refinement criteria like land type heterogeneity, topography, LAI, soil properties, etc. (for `landmesh`)
-- Supports generation of ocean and global earth meshes.
-- Outputs grid files compatible with CoLM2024 and other models
+- Supports generation of land surface, ocean and atmospheric meshes for global/ limited-area modelling
+- Outputs mesh files compatible with CoLM2024, FVCOM, MPAS, OLAM and other models
 
 ## Dependencies
 
@@ -24,12 +24,12 @@ Rui Zhang (V2), Hanwen Fan (V1) and Zhongwang Wei @ SYSU
 
 The primary code for v2 is in the `v2/` directory. Key files/components within `v2/` include:
 
-- `mkgrd.F90`: The main program for grid generation.
-- `*.nml` (e.g., `landmeshv7.nml`, `nxp36.nml`): Namelist files for configuring grid generation options.
+- `mkgrd.F90`: The main program for mesh generation.
+- `*.nml` (e.g., `landmeshv7.nml`, `nxp36.nml`): Namelist files for configuring mesh generation options.
 - `Makefile`: Used for compiling the v2 code.
 - `run.slurm`, `make.slurm`: Example SLURM submission scripts for job scheduling.
 
-The `postprocessing/` directory contains scripts for visualizing or analyzing generated grids.
+The `postprocessing/` directory contains scripts for visualizing or analyzing generated meshs.
 
 ## Usage (V2)
 
@@ -39,7 +39,7 @@ The `postprocessing/` directory contains scripts for visualizing or analyzing ge
    (Ensure a Fortran compiler and NetCDF libraries are installed and configured in your environment).
 
 ### Configuration
-1. Edit the relevant `*.nml` file in the `v2/` directory (e.g., `landmeshv7.nml`) to set parameters for grid generation.
+1. Edit the relevant `*.nml` file in the `v2/` directory (e.g., `landmeshv7.nml`) to set parameters for mesh generation.
 2. Key parameters include `mesh_type` which can be set to `landmesh`, `oceanmesh`, or `earthmesh` to determine the model domain.
 
 ### Execution
@@ -53,20 +53,20 @@ The `postprocessing/` directory contains scripts for visualizing or analyzing ge
 
 Output directories are created within the `file_dir` specified in the namelist file (typically `base_dir/expnme/`). These include:
 
-- `contain/`: Stores containment relationship files, mapping grid cells between different resolutions or unstructured and structured grids.
-- `gridfile/`: Stores the main grid definition files (e.g., cell vertices, connectivity).
-- `patchtype/`: Stores patch type files, which are often needed for domain decomposition in MPI-parallel models.
-- `result/`: Stores final mesh files from the last iteration of refinement. These are typically the primary output grids.
-- `tmpfile/`: Stores intermediate output files generated during polygonal grid refinement steps.
-- `threshold/`: Stores threshold files used for adaptive refinement if refinement is enabled.
+- `contain/`: Stores containment relationship files, mapping mesh cells between different resolutions or unstructured meshs and structured girds.
+- `meshfile/`: Stores the main mesh definition files (e.g., cell vertices, connectivity).
+- `patchtype/`: Stores patch type files, which are often needed for domain decomposition in MPI-parallel models for landmesh.
+- `result/`: Stores final mesh files from the last iteration of refinement. These are typically the primary output meshs.
+- `tmpfile/`: Stores intermediate output files generated during polygonal mesh refinement steps.
+- `threshold/`: Stores threshold files used for adaptive refinement if adaptive refinement is enabled.
 
 ## Execution Logic (V2)
 
-The core execution logic for v2, including the handling of different `mesh_type` values (`landmesh`, `oceanmesh`, `earthmesh`) and the adaptive refinement processes, is implemented in the `v2/mkgrd.F90` file. The main program block within this file orchestrates the grid generation steps.
+The core execution logic for v2, including the handling of different `mesh_type` values (`landmesh`, `oceanmesh`, `earthmesh`) and the adaptive refinement processes, is implemented in the `v2/mkgrd.F90` file. The main program block within this file orchestrates the mesh generation steps.
 
 ## Contributing
 
-Contributions to improve the grid generation tool are welcome. Please submit issues and pull requests on GitHub.
+Contributions to improve the mesh generation tool are welcome. Please submit issues and pull requests on GitHub.
 
 ## License
 
