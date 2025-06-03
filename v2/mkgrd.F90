@@ -47,80 +47,91 @@
 
 !===============================================================================
 program main
+    use netcdf
     use consts_coms
     use refine_vars
-    use MOD_GetContain       , only : Get_Contain
-    use MOD_Refine           , only : refine_loop
-    use MOD_data_preprocess  , only : data_preprocess
-    use MOD_Area_judge       , only : Area_judge
-    use MOD_GetThreshold     , only : GetThreshold
-    use MOD_Threshold_Read   , only : Threshold_Read
+    use MOD_data_preprocess , only : data_preprocess
+    use MOD_grid_preprocess , only : grid_preprocess
+    use MOD_Area_judge      , only : Area_judge, Area_judge_refine
+    use MOD_GetContain      , only : Get_Contain
+    use MOD_GetRef          , only : GetRef
+    use MOD_Refine          , only : refine_loop
+    use MOD_mask_postproc       , only : mask_postproc
 
     implicit none
     character(pathlen) :: nlfile = 'mkgrd.mnl'
-    character(LEN=256) :: finfolist, lndname
-    character(5) :: modec, stepc, nxpc
+    character(pathlen) :: finfolist, lndname
+    character(5) :: stepc, nxpc
     logical :: exit_loop, fexists
+    integer :: i, ncid, dimID_sjx, sjx_points, length
     io6 = 6! If run is sequential, default choice is to set io6 to standard output unit 6.
+    
     ! Initialize HDF5 library
-
+   
     !call h5open_f(hdferr)
     CALL getarg(1, nlfile)
     ! get nml name from command line. For example: if execute ./mkgrd.x ../mkgrd.nml ! Add comment by Rui Zhang
     ! nlfile = ../mkgrd.nml ! Add comment by Rui Zhang
     ! Read Fortran namelist
     call read_nl(nlfile)
+    
+    if ((mesh_type /= 'landmesh')   .and. &
+        (mesh_type /= 'oceanmesh')  .and. &
+        (mesh_type /= 'earthmesh')) then
+        print*, "mesh_type = ", mesh_type
+        STOP "ERROR! mesh_type mush be landmesh/oceanmesh/earthmesh"
+    end if
 
-    file_dir = trim(base_dir) // trim(expnme) // '/'
-    CALL execute_command_line('rm -rf '//trim(file_dir)) ! rm old filedir
-    CALL execute_command_line('mkdir -p '//trim(file_dir)//"contain/") ! 为啥这里要有一个这个
-    CALL execute_command_line('mkdir -p '//trim(file_dir)//"gridfile/")
-    CALL execute_command_line('mkdir -p '//trim(file_dir)//"patchtype/")
-    CALL execute_command_line('mkdir -p '//trim(file_dir)//"result/")
-    CALL execute_command_line('mkdir -p '//trim(file_dir)//"threshold/")
-    CALL execute_command_line('mkdir -p '//trim(file_dir)//"tmpfile/")
+    step = 1
+    num_vertex = 1
+    if (mask_restart) then
+        call init_consts()
+        refine = .false.
+        step = max_iter + 1
+        if ((mesh_type == 'oceanmesh') .and. (.not. mask_patch_on)) then
+            ! 这是针对只调整mask_sea_ratio的情况，如果要补丁的话，那就要从后面的流程
+            print*, "Remask_restart start"
+            CALL mask_postproc(mesh_type) 
+            write(io6, '(A)') "--------------------------------"
+            write(io6, '(A)') ""
+            write(io6, '(A)') "!! Successfully Make Grid End !!"
+            write(io6, '(A)') ""
+            write(io6, '(A)') "--------------------------------"
+            stop "Remask_restart finish"
+        end if
+    end if
 
     finfolist = trim(file_dir)//'result/namelist.save' !
     CALL execute_command_line('cp '//trim(nlfile)//' '//trim(finfolist)) ! cp ../mkgrd.nml finfolist
 
-    if ((mode == 6) .or. (mode == 3)) then
-        print*, 'mode set as ', mode
-    else if (mode == 4) then
-        print*, 'mode set as ', mode, "mode4_gridtype = ", mode4_gridtype
-        if (refine) then
-            print*, "turn refine from TRUE to FALSE"
-            refine = .false.
-        else
-            print*, "refine is FALSE"
-        end if
-        if ((mode4_gridtype /= 'lonlat' ) .and. &
-            (mode4_gridtype /= 'lambert') .and. &
-            (mode4_gridtype /= 'cubical')) stop "ERROR! mode4_gridtype mismatch" 
-    else
-        stop 'mode can be only set as 3 or 4 or 6'
-    end if
-
-    if (mode == 4) then
-        write(io6, *) 'mode4mesh_make start'
-        ! if mode4_gridtype == 'lambert' need change the DmArea Range
-        CALL mode4mesh_make()
-        write(io6, *) 'mode4mesh_make complete'
-        print*, ""
-    else
-        inquire(file = mode_filedir, exist = fexists)
+    inquire(file = mode_file, exist = fexists)
+    if ((mode_grid == 'hex') .or. &
+        (mode_grid == 'tri')) then
         if (fexists) then
-            ! check the file in the mode_filedir
-            write(modec, '(I1.1)') mode
+            inquire(file = mode_file_description, exist = fexists)
+            if (.not. fexists) then
+                print*, "mode_file is exist!"
+                ! check the file in the mode_file
+                CALL CHECK(NF90_OPEN(trim(mode_file), nf90_nowrite, ncid))
+                CALL CHECK(NF90_INQ_DIMID(ncid, "sjx_points", dimID_sjx))!
+                CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_sjx, len = sjx_points))
+                CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_CLOSE关闭文件
+                if (int((sjx_points-1)/20) /= int(nxp*nxp)) then
+                    print*, "nxp read from namelist diff from nxp in the mode_file"
+                    stop
+                    ! print*, "nxp turn to ", nxp ," keep the same value as the mode_file"
+                end if
+            else
+                stop "ERROR! can not use now"
+            end if
             write(nxpc, '(I4.4)') NXP
             write(stepc, '(I2.2)') step
-            lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '.nc4'
-            CALL execute_command_line('cp '//trim(mode_filedir)//' '//trim(lndname))
+            lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'// trim(stepc) //'_'//trim(mode_grid)// '.nc4'
+            CALL execute_command_line('cp '//trim(mode_file)//' '//trim(lndname))
             write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
             write(io6, *) 'grid_write: opening file:', lndname
             write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
-
-            if (refine == .false.) CALL execute_command_line('cp '//trim(lndname)//' &
-                '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_mode'//trim(modec)//'.nc4')
+            call init_consts()
         else
             ! Initialize, execute, and end olam run
 
@@ -128,92 +139,130 @@ program main
 
             call gridinit()
         end if
-    end if
+        write(io6, *) 'grid preporces start'
+        CALL grid_preprocess()
+        write(io6, *) 'grid preporces finish'
+        
+    else if ((mode_grid == 'lonlat' ) .or. &
+             (mode_grid == 'lambert')) then
+        if (fexists) then
+            write(io6, *) 'mode4mesh_make start'
+            inquire(file = mode_file, exist = fexists)
+            if (.not. fexists) then
+                write(*, *) "The input file " // trim(mode_file) // " is missing."
+                stop "Stopping model run."
+            endif
+            CALL mode4mesh_make(mode_file, mode_grid)
+            write(io6, *) 'mode4mesh_make complete'
+            print*, ""
+        else
+            print*, "ERROR! mode_file must fexists when mode_grid as ", mode_grid
+            stop
+        end if
 
-    write(io6, *) 'data preporcess start' 
-    CALL data_preprocess() ! Pre set some necessary data such as cellarea and landtype
+        if (refine) then
+            print*, "turn refine from TRUE to FALSE"
+            refine = .false.
+        else
+            print*, "refine is FALSE"
+        end if
+
+    else if ((mode_grid == 'dbx') .or. &
+             (mode_grid == 'cubical')) then
+        ! 未来的设置是dbx用于直接读入数据，只能有nc/nc4结尾的形式
+        stop "ERROR! mode_grid == dbx/cubical can not use now!"
+        length = len_trim(mode_file)
+        if ('nml' == mode_file(length-2:length)) stop 'ERROR! can not use now in the dbx'
+        if (refine) then
+            print*, "turn refine from TRUE to FALSE when choose dbx"
+            refine = .false.
+         end if
+    else
+        stop 'ERROR mode_grid !!!'
+    end if
+    print*, 'mode_grid set as ', mode_grid    
+
+
+    write(io6, *) 'data preporcess start'
+    ! Preset some necessary data such as landtype 
+    CALL data_preprocess()
     write(io6, *) 'data preporcess complete'
     print*, ""
 
     write(io6, *) 'area judge start'
-    CALL Area_judge() ! Determination of DmArea(RfArea)
+    ! Multiple boundaries options available in the DmArea(RfArea)
+    CALL Area_judge() ! Determination of DmArea(RfArea) / mask-patch-modify
     write(io6, *) 'area judge complete'
     print*, ""
 
+
     if (refine) then
-        step = 0 
-        if (max_iter <= step) stop 'Error! max_iter must more than zero'
         write(io6, *) 'make grid with refine mesh'
         print*, ""
  
-        if (th_file_read) then
-            if (max_iter == 1) then
-                print*, "read thresholdfile directly without threshold calculate"
-            else
-                stop "ERROR if th_file_read == .true. max_iter only set as 1"
-            end if
-        else
-            if ((refine_num_landtypes .eqv. .false.) .and. &
-                (refine_area_mainland .eqv. .false.) .and. &
-                (all(refine_onelayer  .eqv. .false.)).and. &
-                (all(refine_twolayer  .eqv. .false.))) then
-                stop "Error! MUst one of TRUE in the refine_num_landtypes or &
-                      refine_area_mainland or refine_onelayer or refine_twolayer &
-                      when refine is TRUE"
-            end if
-            write(io6, *) 'Threshold_Read start'
-            CALL Threshold_Read() ! var, var_m_s,.... 
-            write(io6, *) 'Threshold_Read complete'
-            print*, ""
-        end if
+        max_iter = max(max_iter_cal, max_iter_spc)
+        print*, "max_iter_spc = ", max_iter_spc ! 从namelist中读入
+        print*, "max_iter_cal = ", max_iter_cal ! 从namelist中读入
+        print*, "max_iter = ", max_iter
+        if (max_iter <= 0) stop 'Error! max_iter must more than zero'
 
-        ! After merge refine_sjx and refine_lbx into refine_ustrgrid
-        write(io6, *) 'step =', step
+        do i = 1, max_iter, 1
+            if (halo(i) < max_transition_row(i)) then
+                print*, 'i = ', i
+                print*, 'halo(i) = ', halo(i)
+                print*, 'max_transition_row(i) = ', max_transition_row(i)
+                stop "ERROR! halo must larger than max_transition_row!"
+            end if    
+        end do
+
         write(io6, *) 'start do-while'
-        write(io6, *) 'max_iter =', max_iter
         exit_loop = .false.
-        do while(step < max_iter)
-           
-            if (th_file_read) then
-                print*, "read thresholdfile directly without threshold calculate"
-                print*, "jump out Get_Contain()" 
-            else
-                write(io6, *) 'Get_Contain start'
-                ! only calculate for newly-generated tri or polygon
-                CALL Get_Contain()
-                write(io6, *) 'Get_Contain complete'
+        do while(step <= max_iter)
+            write(io6, *) 'step = ',step, 'in the refine-circle'
+            write(io6, *) 'Get ref_sjx start'
+            ! only calculate for newly-generated tri or polygon'
+            ! 用于阈值细化
+            if (refine_setting == 'calculate' .or. refine_setting == 'mixed') then
+                if (step <= max_iter_cal) then
+                    CALL Area_judge_refine(0)
+                    CALL Get_Contain(0)
+                    CALL GetRef(0, exit_loop)
+                end if
             end if
-            
-            write(io6, *) 'GetThreshold start'
-            CALL GetThreshold(exit_loop)
-            if (exit_loop) then
-                refine = .false.
-                print *, 'Exiting loop due to ref_sjx equal to zero! &
-                          turn refine from to True to False !'
-                exit  ! 退出外部的 DO WHILE 循环
+
+            ! 用于指定细化
+            if (refine_setting == 'specified' .or. refine_setting == 'mixed') then
+                if (step <= max_iter_spc) then
+                    ! 更换指定细化的地图
+                    CALL Area_judge_refine(step)
+                    CALL Get_Contain(step)
+                    CALL GetRef(step, exit_loop)
+                end if
             end if
-            write(io6, *) 'GetThreshold complete'
+            write(io6, *) 'Get ref_sjx complete'
 
             write(io6, *) 'refine_loop start'
-            CALL refine_loop(exit_loop)
+            CALL refine_loop(exit_loop) ! 读取ref_sjx进行操作
+            write(io6, *) 'refine_loop complete'
+            print*, ""
+           
             if (exit_loop) then
-                refine = .false.
                 print *, 'Exiting loop due to ref_sjx equal to zero! &
                           turn refine from to True to False !'
-                exit  ! 退出外部的 DO WHILE 循环
+                exit ! 退出外部的 DO WHILE 循环
             end if
-            write(io6, *) 'refine_loop complete'
-
+           
             step = step + 1
-            write(io6, *) 'step=',step
         end do
         write(io6, *) 'finish do-while'
     else
         write(io6, *) 'make grid with basic mesh'
     end if
+
     ! calculate for newly-generated tri or polygon
-    ! calculate for tri or polygon in domain area rather than refine area
-    call Get_Contain() ! 不管细化与否都是要获取patchID的
+    refine = .false. ! 当不存在需要继续计算的网格后，turn refine from to True to False !'
+    CALL Get_Contain(0)
+    CALL mask_postproc(mesh_type)
     write(io6, '(A)') "--------------------------------"
     write(io6, '(A)') ""
     write(io6, '(A)') "!! Successfully Make Grid End !!"
@@ -222,210 +271,43 @@ program main
 
 end program main
 
+subroutine mode4mesh_make(inputfile, grid_select)
 
-subroutine read_nl(file)
-    use consts_coms
-    use refine_vars
-    implicit none
-
-    character(*), intent(in) :: file
-
-    logical :: fexists
-    namelist /mkgrd/ nl
-    namelist /mkrefine/ rl
-    ! OPEN THE NAMELIST FILE
-    inquire(file = file, exist = fexists)
-    print*, file
-    if (.not. fexists) then
-        write(*, *) "The namelist file " // trim(file) // " is missing."
-        stop "Stopping model run."
-    endif
-    open(10, status = 'OLD', file = file)
-    ! READ GRID POINT, MODEL OPTIONS, AND PLOTTING INFORMATION FROM THE NAMELIST
-    REWIND(10)
-    !print*,nl
-    read(10, nml = mkgrd)
-    close(10)
-    write(*, nml = mkgrd)
-
-    !----------------------------------------------------------
-    ! Variables in the following section either must not be changed on a history
-    ! restart or changing them would be irrelevant.  Thus, they are only copied
-    ! from the namelist if a history file is not being read.
-    expnme               = nl%expnme
-    nxp                  = nl%nxp
-    openmp               = nl%openmp
-    refine               = nl%refine
-    mode                 = nl%mode
-    base_dir             = nl%base_dir
-    source_dir           = nl%source_dir
-    lcs                  = nl%lcs
-    mode_filedir         = nl%mode_filedir
-    if (mode == 4) then
-        ndm_domain       = 1
-        mode4_gridtype   = nl%mode4_gridtype
-        mode4_datatype   = nl%mode4_datatype
-    else ! only use for mode = 3 or 6
-        ndm_domain           = nl%ndm_domain
-        edgee(1:ndm_domain)  = nl%edgee(1:ndm_domain)
-        edgew(1:ndm_domain)  = nl%edgew(1:ndm_domain)
-        edges(1:ndm_domain)  = nl%edges(1:ndm_domain)
-        edgen(1:ndm_domain)  = nl%edgen(1:ndm_domain)
-    end if
-    if (refine) then
-        open(10, status = 'OLD', file = file)
-        ! READ GRID POINT, MODEL OPTIONS, AND PLOTTING INFORMATION FROM THE NAMELIST
-        REWIND(10)
-        !print*,nl
-        read(10, nml = mkrefine)
-        close(10)
-        write(*, nml = mkrefine)
-
-        ndm_refine            = RL%ndm_refine
-        edgee_rf(1:ndm_refine)= RL%edgee_rf(1:ndm_refine)
-        edgew_rf(1:ndm_refine)= RL%edgew_rf(1:ndm_refine)
-        edges_rf(1:ndm_refine)= RL%edges_rf(1:ndm_refine)
-        edgen_rf(1:ndm_refine)= RL%edgen_rf(1:ndm_refine)
-
-        max_iter              = rl%max_iter
-        max_sa_iter           = rl%max_sa_iter
-        th_file_read          = rl%th_file_read
-        if (th_file_read) then
-            th_filedir        = rl%th_filedir
-            return
-        end if
-        th_num_landtypes      = rl%th_num_landtypes
-
-        refine_num_landtypes  =  rl%refine_num_landtypes
-        refine_area_mainland  =  rl%refine_area_mainland
-        refine_onelayer( 1)   =  rl%refine_lai_m
-        refine_onelayer( 2)   =  rl%refine_lai_s
-        refine_onelayer( 3)   =  rl%refine_slope_m
-        refine_onelayer( 4)   =  rl%refine_slope_s
-        refine_twolayer( 1)   =  rl%refine_k_s_m
-        refine_twolayer( 2)   =  rl%refine_k_s_s
-        refine_twolayer( 3)   =  rl%refine_k_solids_m
-        refine_twolayer( 4)   =  rl%refine_k_solids_s
-        refine_twolayer( 5)   =  rl%refine_tkdry_m
-        refine_twolayer( 6)   =  rl%refine_tkdry_s
-        refine_twolayer( 7)   =  rl%refine_tksatf_m
-        refine_twolayer( 9)   =  rl%refine_tksatf_s
-        refine_twolayer( 9)   =  rl%refine_tksatu_m
-        refine_twolayer(10)   =  rl%refine_tksatu_s
-
-        th_num_landtypes      = rl%th_num_landtypes
-        th_area_mainland      = rl%th_area_mainland
-        th_onelayer( 1)       = rl%th_lai_m
-        th_onelayer( 2)       = rl%th_lai_s
-        th_onelayer( 3)       = rl%th_slope_m
-        th_onelayer( 4)       = rl%th_slope_s
-        th_twolayer( 1, 1:2)  = rl%th_k_s_m
-        th_twolayer( 2, 1:2)  = rl%th_k_s_s
-        th_twolayer( 3, 1:2)  = rl%th_k_solids_m
-        th_twolayer( 4, 1:2)  = rl%th_k_solids_s
-        th_twolayer( 5, 1:2)  = rl%th_tkdry_m
-        th_twolayer( 6, 1:2)  = rl%th_tkdry_s
-        th_twolayer( 7, 1:2)  = rl%th_tksatf_m
-        th_twolayer( 8, 1:2)  = rl%th_tksatf_s
-        th_twolayer( 9, 1:2)  = rl%th_tksatu_m
-        th_twolayer(10, 1:2)  = rl%th_tksatu_s
-
-        ! onelayer
-        if ((refine_onelayer( 1) .eqv. .true.) .and. (th_onelayer( 1) == 999.) ) then
-            stop "stop for mismatch between refine_onelayer( 1) and   th_onelayer( 1) "
-        end if
-        if ((refine_onelayer( 2) .eqv. .true.) .and. (th_onelayer( 2) == 999.) ) stop "stop for &
-            mismatch between refine_onelayer( 2) and   th_onelayer( 2) "
-        if ((refine_onelayer( 3) .eqv. .true.) .and. (th_onelayer( 3) == 999.) ) stop "stop for &
-            mismatch between refine_onelayer( 3) and   th_onelayer( 3) "
-        if ((refine_onelayer( 4) .eqv. .true.) .and. (th_onelayer( 4) == 999.) ) stop "stop for &
-            mismatch between refine_onelayer( 4) and   th_onelayer( 4) "
-
-        ! twolayer
-        if ((refine_twolayer( 1) .eqv. .true.) .and. any(th_twolayer( 1, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 1)  and      th_twolayer( 1, 1:2) "
-        if ((refine_twolayer( 2) .eqv. .true.) .and. any(th_twolayer( 2, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 2)  and      th_twolayer( 2, 1:2) "
-        if ((refine_twolayer( 3) .eqv. .true.) .and. any(th_twolayer( 3, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 3)  and      th_twolayer( 3, 1:2) "
-        if ((refine_twolayer( 4) .eqv. .true.) .and. any(th_twolayer( 4, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 4)  and      th_twolayer( 4, 1:2) "
-        if ((refine_twolayer( 5) .eqv. .true.) .and. any(th_twolayer( 5, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 5)  and      th_twolayer( 5, 1:2) "
-        if ((refine_twolayer( 6) .eqv. .true.) .and. any(th_twolayer( 6, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 6)  and      th_twolayer( 6, 1:2) "
-        if ((refine_twolayer( 7) .eqv. .true.) .and. any(th_twolayer( 7, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 7)  and      th_twolayer( 7, 1:2) "
-        if ((refine_twolayer( 8) .eqv. .true.) .and. any(th_twolayer( 8, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 8)  and      th_twolayer( 8, 1:2) "
-        if ((refine_twolayer( 9) .eqv. .true.) .and. any(th_twolayer( 9, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer( 9)  and      th_twolayer( 9, 1:2) "
-        if ((refine_twolayer(10) .eqv. .true.) .and. any(th_twolayer(10, 1:2) == 999.))  stop "stop for &
-        mismatch between refine_twolayer(10)  and      th_twolayer(10, 1:2) "
-
-    end if
-
-end subroutine read_nl
-
-subroutine mode4mesh_make()
-
-    use consts_coms, only : r8, pathlen, io6, file_dir, EXPNME, NXP, mode, refine, mode4_gridtype, mode4_datatype, mode_filedir, edgee, edgew, edges, edgen
+    use consts_coms, only : r8, pathlen, io6, file_dir, EXPNME, NXP, refine, step
     use netcdf
     use lonlatmesh_coms, only : mesh
-    USE refine_vars, only : step
     use MOD_file_preprocess, only : Mode4_Mesh_Save ! Add by Rui Zhang
 
     implicit none
+    character(pathlen), intent(in) :: inputfile
+    character(*), intent(in) :: grid_select
+    character(pathlen) :: lndname
     logical :: fexists
-    integer :: i, j, idx
+    integer :: i, j, idx, length
     integer :: nlon_cal, nlat_cal
     integer :: ncid, dimID_lon, dimID_lat
-    integer :: lon_points, lat_points, bound_points, mode4_points
+    integer :: lon_points, lat_points, bound_points, mode_points
     integer, dimension(10) :: varid
     real(r8) :: lon_start, lat_start, lon_end, lat_end, lon_grid_interval, lat_grid_interval
     real(r8), dimension(:),  allocatable :: lon_center, lat_center, lon_bound, lat_bound
     real(r8), dimension(:, :), allocatable :: lon_vert, lat_vert, lonlat_bound
     integer,  dimension(:, :), allocatable :: ngr_bound
-    character(pathlen) :: lndname
-    character(5) :: nxpc, stepc
-    character(10) :: mesh_type
-    
-    lndname = trim(mode_filedir)
-    print*, lndname
-    if (mode4_gridtype == 'lonlat') then
-        if (mode4_datatype == 'ncfile') then
-            !  如果从外部读入信息，要求读入的是网格的中心点
-            CALL CHECK(NF90_OPEN(lndname, nf90_nowrite, ncid))
-            CALL CHECK(NF90_INQ_DIMID(ncid, "lon", dimID_lon))
-            CALL CHECK(NF90_INQ_DIMID(ncid, "lat", dimID_lat))
-            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lon, len = lon_points))
-            CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lat, len = lat_points))
-            allocate(lon_center(lon_points))
-            allocate(lat_center(lat_points))
-            CALL CHECK(NF90_INQ_VARID(ncid, "long", varid(1)))
-            CALL CHECK(NF90_INQ_VARID(ncid, "lati", varid(2)))
-            CALL CHECK(NF90_GET_VAR(ncid, varid(1), lon_center))
-            CALL CHECK(NF90_GET_VAR(ncid, varid(2), lat_center))
-            CALL CHECK(NF90_CLOSE(ncid))
-            
-            lon_grid_interval = lon_center(2) - lon_center(1)
-            lat_grid_interval = lat_center(2) - lat_center(1)
-            allocate(lon_bound(lon_points + 1))
-            allocate(lat_bound(lat_points + 1))
-            lon_bound(1 : lon_points) = lon_center             - lon_grid_interval / 2.0
-            lon_bound(1 + lon_points) = lon_center(lon_points) + lon_grid_interval / 2.0
-            where(lon_center > 180.) lon_center = lon_center - 360. ! between -180. and 180.
-            where(lon_bound  > 180.) lon_bound  = lon_bound  - 360. ! between -180. and 180.
-            lat_bound(1 : lat_points) = lat_center             - lat_grid_interval / 2.0
-            lat_bound(1 + lat_points) = lat_center(lat_points) + lat_grid_interval / 2.0
-        else if (mode4_datatype == 'namelist') then
+    integer,  dimension(:),    allocatable :: n_ngr
+    character(5) :: nxpc, stepc, numc
+    character(16) :: definition
+
+    ! loop start from here 
+    print*, "file_dir : ", file_dir
+    lndname = inputfile
+    length = len_trim(lndname)
+    if (trim(adjustl(grid_select)) == 'lonlat') then
+        if (('.nc' == lndname(length-2:length)) .or. &
+            ('nc4' == lndname(length-2:length))) then
+            stop 'ERROR! can not use now in the lonlat'
+
+        else if ('nml' == lndname(length-2:length)) then
             namelist /lonlatmesh/ mesh
             ! OPEN THE NAMELIST FILE
-            inquire(file = lndname, exist = fexists)
-            if (.not. fexists) then
-                write(*, *) "The namelist file " // trim(lndname) // " is missing."
-                stop "Stopping model run."
-            endif
             open(10, status = 'OLD', file = lndname)
             ! READ GRID POINT, MODEL OPTIONS, AND PLOTTING INFORMATION FROM THE NAMELIST
             REWIND(10)
@@ -434,7 +316,7 @@ subroutine mode4mesh_make()
             close(10)
             write(*, nml = lonlatmesh)
 
-            mesh_type              = mesh%mesh_type
+            definition             = mesh%definition
             lon_start              = mesh%lon_start
             lon_end                = mesh%lon_end
             lon_grid_interval      = mesh%lon_grid_interval
@@ -456,7 +338,7 @@ subroutine mode4mesh_make()
                 stop 'ERROR nlat_cal /= lat_points'
             end if
             
-            if (mesh_type == 'center') then
+            if (definition == 'center') then
                 allocate(lon_center(lon_points))
                 allocate(lat_center(lat_points))
                 allocate(lon_bound(lon_points + 1))
@@ -467,7 +349,7 @@ subroutine mode4mesh_make()
                 lon_bound(1 + lon_points) = lon_end    + lon_grid_interval / 2.0
                 lat_bound(1 : lat_points) = lat_center - lat_grid_interval / 2.0
                 lat_bound(1 + lat_points) = lat_end    + lat_grid_interval / 2.0
-            else if (mesh_type == 'bound') then
+            else if (definition == 'bound') then
                 allocate(lon_bound(lon_points))
                 allocate(lat_bound(lat_points))
                 ! 因为读入是边界值，网格数量比边界个数少一个
@@ -482,12 +364,12 @@ subroutine mode4mesh_make()
                 lon_center = (lon_bound(1 : lon_points) + lon_bound(2 : 1 + lon_points)) / 2.0
                 lat_center = (lat_bound(1 : lat_points) + lat_bound(2 : 1 + lat_points)) / 2.0
             else
-                stop "error mesh_type mismatch"
+                stop "error definition mismatch"
             end if
         else
-            stop "error mode4_datatype must choose 'ncfile' or 'namelist' please check!"
+            stop "error datatype must choose 'ncfile' or 'namelist' please check!"
         end if
-
+    
         write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
         print*, "lonlat bound range"
         print*, "lon_bound(1) = ", lon_bound(1)
@@ -511,7 +393,7 @@ subroutine mode4mesh_make()
         print*, ""
         where(lon_center > 180.)  lon_center = lon_center - 360. ! between -180. and 180.
         where(lon_bound  > 180.)  lon_bound  = lon_bound  - 360. ! between -180. and 180.
-        NXP = lon_points / 5 ! compare with NXP in triangle or polygon   
+        NXP = int( abs(360. / lon_grid_interval) / 5 )! compare with NXP in triangle or polygon   
 
         ! turn lon_bound/lat_bound(1D) to lon_vert.lat_vert(2D)
         print*, "turn lon_bound/lat_bound(1D) to lon_vert/lat_vert(2D) start"
@@ -523,11 +405,12 @@ subroutine mode4mesh_make()
         do i = 1, lon_points + 1, 1
             lat_vert(i, :) = lat_bound 
         end do
-        print*, "turn lon_bound/lat_bound(1D) to lon_vert.lat_vert(2D) finish"
+        print*, "turn lon_bound/lat_bound(1D) to lon_vert/lat_vert(2D) finish"
         print*, ""
 
-    else if (mode4_gridtype == 'lambert') then
-        if (mode4_datatype == 'ncfile') then
+    else if (trim(adjustl(grid_select)) == 'lambert') then
+        if (('.nc' == lndname(length-2:length))  .or. &
+            ('nc4' == lndname(length-2:length))) then
             CALL CHECK(NF90_OPEN(lndname, nf90_nowrite, ncid))
             CALL CHECK(NF90_INQ_DIMID(ncid, "xi_vert",  dimID_lon))
             CALL CHECK(NF90_INQ_DIMID(ncid, "eta_vert", dimID_lat))
@@ -543,19 +426,25 @@ subroutine mode4mesh_make()
             ! 因为读入是边界值，网格数量比边界个数少一个
             lon_points = lon_points - 1
             lat_points = lat_points - 1
+            where(lon_vert > 180.)  lon_vert = lon_vert - 360. ! between -180. and 180.
+        else if ('nml' == lndname(length-2:length)) then
+            stop 'ERROR! nml can not use in lambert now'
         end if
-    else if (mode4_gridtype == 'cubical') then
+
+    else if (trim(adjustl(grid_select)) == 'cubical') then
         stop "error lambert or cubical can not use now!"
     else
-        stop "error mode4_gridtype must choose 'lonlat' or 'lambert' or 'cubical' please check!"  
+        stop "error grid_select must choose 'lonlat' or 'lambert' or 'cubical' please check!"  
     end if
 
     ! turn 1D to 2D
     print*, "lonlat_bound and ngr_bound calculate start"
+    print*, "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
     bound_points = (lon_points + 1) * (lat_points + 1) + 1
-    mode4_points = lon_points * lat_points + 1
-    allocate(lonlat_bound(bound_points, 2)); lonlat_bound = 0.
-    allocate(ngr_bound(4, mode4_points)); ngr_bound = 1
+    mode_points = lon_points * lat_points + 1
+    allocate(lonlat_bound(bound_points, 2)); lonlat_bound = -999.
+    allocate(ngr_bound(4, mode_points)); ngr_bound = 1
+    allocate(n_ngr(mode_points)); n_ngr = 4
 
     idx = 1
     do j = 1, lat_points + 1, 1
@@ -564,9 +453,7 @@ subroutine mode4mesh_make()
             lonlat_bound(idx, :) = [lon_vert(i, j), lat_vert(i, j)]
         end do
     end do
-    print*, "lonlat_bound calculate finish"
-    print*, ""
-
+    
     ! ngr_bound calculate, never start from 1 !
     idx = 1
     do j = 1, lat_points, 1
@@ -579,41 +466,799 @@ subroutine mode4mesh_make()
         end do
     end do
     ngr_bound = ngr_bound + 1 ! never start from 1 !
-    print*, "lonlat_bound and ngr_bound calculate finish"
 
-    ! set values for DmArea Range
-    print*, "set values for DmArea Range start "
-    edgew(1) = max(minval(lonlat_bound(:, 1)), -180.) 
-    edgee(1) = min(maxval(lonlat_bound(:, 1)),  180.)
-    edgen(1) = min(maxval(lonlat_bound(:, 2)),   90.)
-    edges(1) = max(minval(lonlat_bound(:, 2)),  -90.)
-    if (lon_points * lon_grid_interval >= 360.) then
-        edgew(1) = -180.
-        edgee(1) =  180.
-    end if
-    print*, "edgew = ", edgew(1)
-    print*, "edgee = ", edgee(1)
-    print*, "edgen = ", edgen(1)
-    print*, "edges = ", edges(1)
-    print*, "set values for DmArea Range finish"
+    print*, "lon_points : ", lon_points
+    print*, "lat_points : ", lat_points
+    print*, "bound_points : ", bound_points
+    print*, "mode_points  : ", mode_points
+    print*, "minval(lonlat_bound) : ", minval(lonlat_bound(2:bound_points, 1))
+    print*, "maxval(lonlat_bound) : ", maxval(lonlat_bound(2:bound_points, 1))
+    print*, "maxval(lonlat_bound) : ", maxval(lonlat_bound(2:bound_points, 2))
+    print*, "minval(lonlat_bound) : ", minval(lonlat_bound(2:bound_points, 2))
+    print*, "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+    print*, "lonlat_bound and ngr_bound calculate finish"
     print*, ""
 
-    write(nxpc, '(I4.4)') NXP
-    write(stepc, '(I2.2)') step
-    lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '.nc4'
     write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
     write(io6, *) 'grid_write: opening file:', lndname
-    write(io6, *) 'mode4_points : ', mode4_points
+    write(io6, *) 'mode_points : ', mode_points
     write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
     ! initial file without any refine
-    CALL Mode4_Mesh_Save(lndname, bound_points, mode4_points, lonlat_bound, ngr_bound)
-
-    if (refine == .false.) call execute_command_line('cp '//trim(lndname)//' &
-        '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_mode4.nc4')
-
+    write(nxpc, '(I4.4)') NXP
+    write(stepc, '(I2.2)') step
+    lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'// trim(stepc) //'_'//trim(grid_select)//'.nc4'
+    print*, lndname
+    CALL Mode4_Mesh_Save(lndname, bound_points, mode_points, lonlat_bound, ngr_bound, n_ngr)
     print*, "mode4mesh_make finish"
 
 end subroutine mode4mesh_make
+
+! 需要把refine的文件编号全部弄好来
+subroutine read_nl(nlfile)
+    use consts_coms
+    use refine_vars
+    implicit none
+
+    character(*), intent(in) :: nlfile
+    integer :: i, pos, iostat
+    logical :: fexists
+    character(pathlen) :: path, fprefix, filename, lndname
+
+    namelist /mkgrd/ nl
+    namelist /mkrefine/ rl
+    ! OPEN THE NAMELIST FILE
+    inquire(file = nlfile, exist = fexists)
+    print*, nlfile
+    if (.not. fexists) then
+        write(*, *) "The namelist file " // trim(nlfile) // " is missing."
+        stop "Stopping model run."
+    endif
+    open(iunit, status = 'OLD', file = nlfile)
+    ! READ GRID POINT, MODEL OPTIONS, AND PLOTTING INFORMATION FROM THE NAMELIST
+    REWIND(iunit)
+    !print*,nl
+    read(iunit, nml = mkgrd)
+    close(iunit)
+    write(*, nml = mkgrd)
+    print*, ""
+
+    !----------------------------------------------------------
+    ! Variables in the following section either must not be changed on a history
+    ! restart or changing them would be irrelevant.  Thus, they are only copied
+    ! from the namelist if a history file is not being read.
+    expnme               = nl%expnme
+    nxp                  = nl%nxp
+    GXR                  = nl%GXR
+    base_dir             = nl%base_dir
+    source_dir           = nl%source_dir
+    mesh_type            = nl%mesh_type
+    mode_grid            = nl%mode_grid
+    mode_file            = nl%mode_file
+    mode_file_description= nl%mode_file_description
+    refine               = nl%refine
+    lcs                  = nl%lcs
+    openmp               = nl%openmp
+    mask_sea_ratio       = nl%mask_sea_ratio
+    mask_restart         = nl%mask_restart
+    mask_domain_type     = nl%mask_domain_type
+    mask_domain_fprefix  = nl%mask_domain_fprefix
+    mask_patch_on        = nl%mask_patch_on
+    mask_patch_type      = nl%mask_patch_type
+    mask_patch_fprefix   = nl%mask_patch_fprefix
+    file_dir             = trim(base_dir) // trim(expnme) // '/'
+    if (GXR < 0) stop "ERROR! GXR must >= 0"
+    if (mask_restart) then
+        if (mask_patch_on) CALL Mask_make('mask_patch', mask_patch_type, mask_patch_fprefix)
+        return
+    end if
+
+    CALL execute_command_line('rm -rf '//trim(file_dir)) ! rm old filedir
+    CALL execute_command_line('mkdir -p '//trim(file_dir)//"contain/") ! use for step
+    CALL execute_command_line('mkdir -p '//trim(file_dir)//"gridfile/") ! use for step
+    CALL execute_command_line('mkdir -p '//trim(file_dir)//"patchtype/")
+    CALL execute_command_line('mkdir -p '//trim(file_dir)//"result/") ! final mesh file
+    CALL execute_command_line('mkdir -p '//trim(file_dir)//"tmpfile/")
+    CALL execute_command_line('rm *_filelist.txt')
+    ! mask_domain
+    CALL Mask_make('mask_domain', mask_domain_type, mask_domain_fprefix)
+    ! mask_patch
+    if (mask_patch_on) CALL Mask_make('mask_patch', mask_patch_type, mask_patch_fprefix)
+
+    if (refine) then
+        CALL execute_command_line('mkdir -p '//trim(file_dir)//"threshold/")
+        open(iunit, status = 'OLD', file = nlfile)
+        REWIND(iunit)
+        read(iunit, nml = mkrefine)
+        close(iunit)
+        write(*, nml = mkrefine)
+        weak_concav_eliminate = rl%weak_concav_eliminate
+        Istransition          = rl%Istransition
+        max_sa_iter           = rl%max_sa_iter
+        halo                  = rl%halo
+        max_transition_row    = rl%max_transition_row
+        if (Istransition == .false. .and. mode_grid /= 'tri') STOP "ERROR! not Istransition can only use in the tri"
+        
+        refine_spc            = rl%refine_spc
+        refine_cal            = rl%refine_cal
+        if (refine_spc) max_iter_spc          = rl%max_iter_spc ! 默认为0，开关打开才读取
+        if (refine_cal) max_iter_cal          = rl%max_iter_cal ! 默认为0，开关打开才读取
+
+        if ((refine_spc .eqv. .TRUE.) .and. (refine_cal .eqv. .TRUE.)) then
+            refine_setting = 'mixed'
+        else if ((refine_spc .eqv. .TRUE.)  .and. (refine_cal .eqv. .FALSE.)) then
+            refine_setting = 'specified'
+        else if ((refine_spc .eqv. .FALSE.) .and. (refine_cal .eqv. .TRUE.)) then
+            refine_setting = 'calculate'
+        else
+            stop "ERROR! MUst one of TRUE in the refine_spc and refine_cal when refine is TRUE"
+        end if
+        print*, "refine_setting = ", refine_setting
+
+        ! 指定细化
+        if (refine_setting == 'specified' .or. refine_setting == 'mixed') then
+            mask_refine_spc_type       = RL%mask_refine_spc_type
+            mask_refine_spc_fprefix    = RL%mask_refine_spc_fprefix
+            CALL Mask_make('mask_refine', mask_refine_spc_type, mask_refine_spc_fprefix) 
+            if (mask_refine_ndm(max_iter_spc) == 0) then
+                print*, "max_iter_spc = ", max_iter_spc
+                print*, "mask_refine_ndm(max_iter_spc) = ", mask_refine_ndm(max_iter_spc)
+                stop "ERROR! mask_refine_ndm(max_iter_spc) must larger then one, please modify max_iter_spc"
+            end if
+        end if
+
+        ! 阈值细化
+        if (refine_setting == 'calculate' .or. refine_setting == 'mixed') then
+            if ((mesh_type == 'landmesh') .or. (mesh_type == 'earthmesh')) then
+                refine_num_landtypes      = rl%refine_num_landtypes
+                refine_area_mainland      = rl%refine_area_mainland
+                refine_onelayer_Lnd( 1)   = rl%refine_lai_m
+                refine_onelayer_Lnd( 2)   = rl%refine_lai_s
+                refine_onelayer_Lnd( 3)   = rl%refine_slope_m
+                refine_onelayer_Lnd( 4)   = rl%refine_slope_s
+                refine_twolayer_Lnd( 1)   = rl%refine_k_s_m
+                refine_twolayer_Lnd( 2)   = rl%refine_k_s_s
+                refine_twolayer_Lnd( 3)   = rl%refine_k_solids_m
+                refine_twolayer_Lnd( 4)   = rl%refine_k_solids_s
+                refine_twolayer_Lnd( 5)   = rl%refine_tkdry_m
+                refine_twolayer_Lnd( 6)   = rl%refine_tkdry_s
+                refine_twolayer_Lnd( 7)   = rl%refine_tksatf_m
+                refine_twolayer_Lnd( 8)   = rl%refine_tksatf_s
+                refine_twolayer_Lnd( 9)   = rl%refine_tksatu_m
+                refine_twolayer_Lnd(10)   = rl%refine_tksatu_s
+
+                th_num_landtypes          = rl%th_num_landtypes
+                th_area_mainland          = rl%th_area_mainland
+                th_onelayer_Lnd( 1)       = rl%th_lai_m
+                th_onelayer_Lnd( 2)       = rl%th_lai_s
+                th_onelayer_Lnd( 3)       = rl%th_slope_m
+                th_onelayer_Lnd( 4)       = rl%th_slope_s
+                th_twolayer_Lnd( 1, 1:2)  = rl%th_k_s_m
+                th_twolayer_Lnd( 2, 1:2)  = rl%th_k_s_s
+                th_twolayer_Lnd( 3, 1:2)  = rl%th_k_solids_m
+                th_twolayer_Lnd( 4, 1:2)  = rl%th_k_solids_s
+                th_twolayer_Lnd( 5, 1:2)  = rl%th_tkdry_m
+                th_twolayer_Lnd( 6, 1:2)  = rl%th_tkdry_s
+                th_twolayer_Lnd( 7, 1:2)  = rl%th_tksatf_m
+                th_twolayer_Lnd( 8, 1:2)  = rl%th_tksatf_s
+                th_twolayer_Lnd( 9, 1:2)  = rl%th_tksatu_m
+                th_twolayer_Lnd(10, 1:2)  = rl%th_tksatu_s
+            end if
+
+            if ((mesh_type == 'oceanmesh') .or. (mesh_type == 'earthmesh')) then
+                refine_sea_ratio          = rl%refine_sea_ratio
+                refine_Rossby_radius      = rl%refine_Rossby_radius
+                refine_onelayer_Ocn(1)    = rl%refine_sst_m
+                refine_onelayer_Ocn(2)    = rl%refine_sst_s
+                refine_onelayer_Ocn(3)    = rl%refine_ssh_m
+                refine_onelayer_Ocn(4)    = rl%refine_ssh_s
+                refine_onelayer_Ocn(5)    = rl%refine_eke_m
+                refine_onelayer_Ocn(6)    = rl%refine_eke_s
+                refine_onelayer_Ocn(7)    = rl%refine_sea_slope_m
+                refine_onelayer_Ocn(8)    = rl%refine_sea_slope_s
+
+                th_sea_ratio              = rl%th_sea_ratio
+                th_Rossby_radius          = rl%th_Rossby_radius
+                th_onelayer_Ocn(1)        = rl%th_sst_m
+                th_onelayer_Ocn(2)        = rl%th_sst_s
+                th_onelayer_Ocn(3)        = rl%th_ssh_m
+                th_onelayer_Ocn(4)        = rl%th_ssh_s
+                th_onelayer_Ocn(5)        = rl%th_eke_m
+                th_onelayer_Ocn(6)        = rl%th_eke_s
+                th_onelayer_Ocn(7)        = rl%th_sea_slope_m
+                th_onelayer_Ocn(8)        = rl%th_sea_slope_s
+            end if
+
+            if (mesh_type == 'earthmesh') then
+                refine_onelayer_Earth( 1) = rl%refine_typhoon_m
+                refine_onelayer_Earth( 2) = rl%refine_typhoon_s
+                th_onelayer_Earth( 1)     = rl%th_typhoon_m
+                th_onelayer_Earth( 2)     = rl%th_typhoon_s
+            end if
+
+            ! 开启阈值细化就一定要开启阈值具体的阈值细化开关
+            if (refine_setting == 'calculate' .or. refine_setting == 'mixed') then
+                if (mesh_type == 'landmesh') then
+                    if ((refine_num_landtypes .eqv. .false.) .and. &
+                        (refine_area_mainland .eqv. .false.) .and. &
+                        (all(refine_onelayer_Lnd  .eqv. .false.)).and. &
+                        (all(refine_twolayer_Lnd  .eqv. .false.))) then
+                        stop "Error! MUst one of TRUE in the refine_num_landtypes or &
+                                refine_area_mainland or refine_onelayer_Lnd or refine_twolayer_Lnd &
+                                when refine is TRUE and meshtype = landmesh"
+                    end if
+
+                else if (mesh_type == 'oceanmesh') then
+                    if ((refine_sea_ratio .eqv. .false.) .and. &
+                        (refine_Rossby_radius .eqv. .false.) .and. &
+                        (all(refine_onelayer_Ocn .eqv. .false.))) then
+                        stop "ERROR! MUst one of TRUE in the refine_sea_ratio or refine_onelayer_Ocn when refine is TRUE and meshtype = oceanmesh"
+                    end if
+
+                else if (mesh_type == 'earthmesh') then
+                    if ((refine_num_landtypes .eqv. .false.) .and. &
+                        (refine_area_mainland .eqv. .false.) .and. &
+                        (refine_sea_ratio     .eqv. .false.) .and. &
+                        (refine_Rossby_radius .eqv. .false.) .and. &
+                        (all(refine_onelayer_Lnd  .eqv. .false.)) .and. &
+                        (all(refine_twolayer_Lnd  .eqv. .false.)) .and. &
+                        (all(refine_onelayer_Ocn  .eqv. .false.)) .and. &
+                        (all(refine_onelayer_Earth .eqv. .false.))) then
+                        print*, "refine_num_landtypes = ", refine_num_landtypes
+                        print*, "refine_area_mainland = ", refine_area_mainland
+                        print*, "refine_sea_ratio = ", refine_sea_ratio
+                        print*, "refine_Rossby_radius = ", refine_Rossby_radius
+                        stop "Error! MUst one of TRUE in the refine_sea_ratio or refine_Rossby_radius or &
+                                refine_num_landtypes or &
+                                refine_area_mainland or refine_onelayer_Lnd or refine_twolayer_Lnd or &
+                                refine_onelayer_Ocn or refine_onelayer_Earth &
+                                when refine is TRUE and meshtype = earthmesh"
+                    end if
+                end if
+            end if
+            mask_refine_cal_type       = RL%mask_refine_cal_type
+            mask_refine_cal_fprefix    = RL%mask_refine_cal_fprefix
+            CALL Mask_make('mask_refine', mask_refine_cal_type, mask_refine_cal_fprefix)
+        end if
+        
+        ! onelayer_Lnd
+        if ((refine_onelayer_Lnd( 1) .eqv. .true.) .and. (th_onelayer_Lnd( 1) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Lnd( 1) and   th_onelayer_Lnd( 1) "
+        if ((refine_onelayer_Lnd( 2) .eqv. .true.) .and. (th_onelayer_Lnd( 2) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Lnd( 2) and   th_onelayer_Lnd( 2) "
+        if ((refine_onelayer_Lnd( 3) .eqv. .true.) .and. (th_onelayer_Lnd( 3) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Lnd( 3) and   th_onelayer_Lnd( 3) "
+        if ((refine_onelayer_Lnd( 4) .eqv. .true.) .and. (th_onelayer_Lnd( 4) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Lnd( 4) and   th_onelayer_Lnd( 4) "
+        ! twolayer_Lnd
+        if ((refine_twolayer_Lnd( 1) .eqv. .true.) .and. any(th_twolayer_Lnd( 1, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 1)  and      th_twolayer_Lnd( 1, 1:2) "
+        if ((refine_twolayer_Lnd( 2) .eqv. .true.) .and. any(th_twolayer_Lnd( 2, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 2)  and      th_twolayer_Lnd( 2, 1:2) "
+        if ((refine_twolayer_Lnd( 3) .eqv. .true.) .and. any(th_twolayer_Lnd( 3, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 3)  and      th_twolayer_Lnd( 3, 1:2) "
+        if ((refine_twolayer_Lnd( 4) .eqv. .true.) .and. any(th_twolayer_Lnd( 4, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 4)  and      th_twolayer_Lnd( 4, 1:2) "
+        if ((refine_twolayer_Lnd( 5) .eqv. .true.) .and. any(th_twolayer_Lnd( 5, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 5)  and      th_twolayer_Lnd( 5, 1:2) "
+        if ((refine_twolayer_Lnd( 6) .eqv. .true.) .and. any(th_twolayer_Lnd( 6, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 6)  and      th_twolayer_Lnd( 6, 1:2) "
+        if ((refine_twolayer_Lnd( 7) .eqv. .true.) .and. any(th_twolayer_Lnd( 7, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 7)  and      th_twolayer_Lnd( 7, 1:2) "
+        if ((refine_twolayer_Lnd( 8) .eqv. .true.) .and. any(th_twolayer_Lnd( 8, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 8)  and      th_twolayer_Lnd( 8, 1:2) "
+        if ((refine_twolayer_Lnd( 9) .eqv. .true.) .and. any(th_twolayer_Lnd( 9, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd( 9)  and      th_twolayer_Lnd( 9, 1:2) "
+        if ((refine_twolayer_Lnd(10) .eqv. .true.) .and. any(th_twolayer_Lnd(10, 1:2) == 999.))  stop "stop for &
+        mismatch between refine_twolayer_Lnd(10)  and      th_twolayer_Lnd(10, 1:2) "
+
+        ! onelayer_Ocn
+        if ((refine_onelayer_Ocn( 1) .eqv. .true.) .and. (th_onelayer_Ocn( 1) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 1) and   th_onelayer_Ocn( 1) "
+        if ((refine_onelayer_Ocn( 2) .eqv. .true.) .and. (th_onelayer_Ocn( 2) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 2) and   th_onelayer_Ocn( 2) "
+        if ((refine_onelayer_Ocn( 3) .eqv. .true.) .and. (th_onelayer_Ocn( 3) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 3) and   th_onelayer_Ocn( 3) "
+        if ((refine_onelayer_Ocn( 4) .eqv. .true.) .and. (th_onelayer_Ocn( 4) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 4) and   th_onelayer_Ocn( 4) "
+        if ((refine_onelayer_Ocn( 5) .eqv. .true.) .and. (th_onelayer_Ocn( 5) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 5) and   th_onelayer_Ocn( 5) "
+        if ((refine_onelayer_Ocn( 6) .eqv. .true.) .and. (th_onelayer_Ocn( 6) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 6) and   th_onelayer_Ocn( 6) "
+        if ((refine_onelayer_Ocn( 7) .eqv. .true.) .and. (th_onelayer_Ocn( 7) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 7) and   th_onelayer_Ocn( 7) "
+        if ((refine_onelayer_Ocn( 8) .eqv. .true.) .and. (th_onelayer_Ocn( 8) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Ocn( 8) and   th_onelayer_Ocn( 8) "
+
+        ! onelayer_Earth
+        if ((refine_onelayer_Earth( 1) .eqv. .true.) .and. (th_onelayer_Earth( 1) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Earth( 1) and   th_onelayer_Earth( 1) "
+        if ((refine_onelayer_Earth( 2) .eqv. .true.) .and. (th_onelayer_Earth( 2) == 999.) ) stop "stop for &
+            mismatch between refine_onelayer_Earth( 2) and   th_onelayer_Earth( 2) "
+
+    end if
+
+end subroutine read_nl
+
+SUBROUTINE Mask_make(mask_select, type_select, mask_fprefix)
+    ! 将domain/refine/patch的mask前处理共用部分放在一起
+    use consts_coms
+    use refine_vars
+    use netcdf
+    implicit none
+    character(*), intent(in) :: mask_select, type_select, mask_fprefix
+    integer :: pos, i, iostat
+    logical :: fexists
+    character(pathlen) :: path, fprefix, filename, lndname, command
+    
+    pos = 0
+    do i = len_trim(mask_fprefix), 1, -1
+        if (mask_fprefix(i:i) == '/') then
+            pos = i
+            exit
+        end if
+    end do
+    if (pos > 0) then
+        path = mask_fprefix(1:pos)   ! 提取路径部分
+        fprefix = mask_fprefix(pos+1:)  ! 提取文件名部分
+        print *, 'path: ',    trim(adjustl(path))
+        print *, 'fprefix: ', trim(adjustl(fprefix))
+        fexists = .false.
+
+        ! 使用系统命令列出目录中的所有文件
+        lndname = trim(mask_select) // '_filelist.txt'
+        command = 'ls ' // trim(mask_fprefix) // '* > ' // trim(lndname)
+        call execute_command_line(command)
+
+        ! 打开临时文件读取文件列表
+        open(unit=111, file=lndname, status='old')
+        REWIND(111)
+        ! 遍历文件列表
+        do while (.true.)
+            read(111,'(A)', iostat=iostat) filename
+            print*, "iostat = ", iostat, "mask_select = ", mask_select
+            if (iostat < 0) exit
+            if (iostat > 0) then
+                print *, "文件读取错误 in the Mask_make in the mkgrd.F90"
+                stop
+            end if
+            ! 如果文件名中包含特定的字符串，设置found为.true.
+            if (index(trim(adjustl(filename)), trim(adjustl(fprefix)) ) > 0) then
+                print*, "filename : ", trim(adjustl(filename))
+                fexists = .true.
+                if (type_select == 'bbox') then
+                    CALL bbox_mask_make(filename, mask_select)
+                else if (type_select == 'lambert') then
+                    CALL lamb_mask_make(filename, mask_select)
+                else if (type_select == 'circle') then
+                    CALL circle_mask_make(filename, mask_select) 
+                else if (type_select == 'close') then
+                    CALL close_mask_make(filename, mask_select)
+                else
+                    print*, "ERROR! ", type_select, " must be bbox, lambert, circle, close"
+                    stop
+                end if
+            end if
+        end do
+
+        ! 关闭文件
+        close(111)
+
+        ! 输出是否找到匹配的文件
+        if (.not. fexists) stop '未找到匹配的文件 路径格式错误 in the mask_refine_fprefix'
+    else
+        print*, "路径格式错误 in the mask_fprefix", trim(mask_fprefix)
+        stop
+    end if
+
+END SUBROUTINE Mask_make
+
+subroutine bbox_mask_make(inputfile, mask_select)
+    ! 文件类型然后转为nc文件便于读取，如果是nc就直接赋值
+    use netcdf
+    use consts_coms, only : r8, pathlen, file_dir, mask_domain_ndm, mask_patch_ndm
+    use refine_vars, only : mask_refine_ndm, max_iter_spc
+    use MOD_file_preprocess, only : bbox_Mesh_Save ! Add by Rui Zhang
+    implicit none
+    character(pathlen), intent(in) :: inputfile
+    character(*), intent(in) :: mask_select
+    integer :: ncid, varid
+    character(pathlen) :: lndname, line
+    logical :: fexists
+    integer :: i, bbox_num, refine_degree, length, io_stat
+    real(r8), allocatable :: bbox_points(:,:)
+    character(5) :: numc, refinec
+
+    length = len_trim(inputfile)
+    if ('nml' == inputfile(length-2:length)) then
+        ! nml：第一个行说明点的个数
+        open(unit=10, file=inputfile, status='old', action='read')
+        REWIND(10)
+        ! * 是自由格式，Fortran 会跳过所有非数字字符，直到找到数字部分
+        read(10, '(A)', iostat=io_stat) line  ! 读取整行
+        if (io_stat /= 0) then
+            print *, "Error: Failed to read bbox_num"
+            stop
+        end if
+        read(line(index(line, '=')+1:), *) bbox_num  ! 解析 bbox_num
+
+        read(10, '(A)', iostat=io_stat) line  ! 读取整行
+        if (io_stat /= 0) then
+            print *, "Error: Failed to read circle_refine"
+            stop
+        end if
+        read(line(index(line, '=')+1:), *) refine_degree  ! 解析 bbox_refine
+        if (refine_degree > max_iter_spc) then
+            print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+            return ! 返回，不进行后续操作
+            close(10)
+        end if
+
+        print*, "bbox_points must be 1.West 2.East 3.North and 4.South"
+        allocate(bbox_points(bbox_num, 4))
+        do i = 1, bbox_num, 1
+            ! must make sure bbox_points in the range from -180. to 180. and -90. to 90.
+            read(10, *) bbox_points(i, 1), bbox_points(i, 2), bbox_points(i, 3), bbox_points(i, 4)
+            if (bbox_points(i, 1) > bbox_points(i, 2)) stop "ERROR! bbox_points(i, 1) > bbox_points(i, 2)"
+            if (bbox_points(i, 3) < bbox_points(i, 4)) stop "ERROR! bbox_points(i, 3) < bbox_points(i, 4)"
+        end do
+        close(10)
+
+        write(refinec, '(I1)') refine_degree
+        if (mask_select == 'mask_domain') then
+            mask_domain_ndm = mask_domain_ndm + 1
+            write(numc, '(I2.2)') mask_domain_ndm
+        else if (mask_select == 'mask_refine') then
+            mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+            write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+        else if (mask_select == 'mask_patch') then
+            mask_patch_ndm = mask_patch_ndm + 1
+            write(numc, '(I2.2)') mask_patch_ndm
+        end if
+
+        lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_bbox_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+        CALL bbox_Mesh_Save(lndname, bbox_num, bbox_points)
+        deallocate(bbox_points)
+
+    else if (('.nc' == inputfile(length-2:length)) .or. &
+             ('nc4' == inputfile(length-2:length))) then
+        CALL CHECK(NF90_OPEN(trim(inputfile), nf90_nowrite, ncid))! 1. NF90_OPEN 打开文件
+        CALL CHECK(NF90_INQ_VARID(ncid, 'bbox_refine', varid))
+        CALL CHECK(NF90_GET_VAR(ncid, varid, refine_degree))
+        CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_bbox关闭文件
+        if (refine_degree > max_iter_spc) then
+            print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+            return ! 返回，不进行后续操作
+        end if
+
+        write(refinec, '(I1)') refine_degree
+        if (mask_select == 'mask_domain') then
+            mask_domain_ndm = mask_domain_ndm + 1
+            write(numc, '(I2.2)') mask_domain_ndm
+        else if (mask_select == 'mask_refine') then
+            mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+            write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+        else if (mask_select == 'mask_patch') then
+            mask_patch_ndm = mask_patch_ndm + 1
+            write(numc, '(I2.2)') mask_patch_ndm
+        end if
+
+        lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_bbox_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+        CALL execute_command_line('cp '//trim(inputfile)//' '//trim(lndname))
+    else
+        stop "ERROR! must choose 'ncfile' or 'nml' please check!"
+    end if 
+    print*, lndname
+
+end subroutine bbox_mask_make
+
+! 目前只可以用于nc文件，而且只能用于阈值计算中
+subroutine lamb_mask_make(inputfile, mask_select)
+    use netcdf
+    use consts_coms, only : r8, pathlen, file_dir, mask_domain_ndm, mask_patch_ndm
+    use refine_vars, only : mask_refine_ndm, max_iter_spc
+    use MOD_file_preprocess, only : Mode4_Mesh_Save ! Add by Rui Zhang
+
+    implicit none
+    character(pathlen), intent(in) :: inputfile
+    character(*), intent(in) :: mask_select
+    character(pathlen) :: lndname
+    logical :: fexists
+    integer :: i, j, idx, length
+    integer :: nlon_cal, nlat_cal
+    integer :: ncid, dimID_lon, dimID_lat
+    integer :: lon_points, lat_points, bound_points, mode_points, refine_degree
+    integer, dimension(10) :: varid
+    real(r8), dimension(:, :), allocatable :: lon_vert, lat_vert, lonlat_bound
+    integer,  dimension(:, :), allocatable :: ngr_bound
+    integer,  dimension(:),    allocatable :: n_ngr
+    character(5) :: nxpc, stepc, numc, refinec
+
+    length = len_trim(inputfile)
+    if ('nml' == inputfile(length-2:length)) then
+        stop 'ERROR! nml can not use in lambert now'
+    else if (('.nc' == inputfile(length-2:length))  .or. &
+             ('nc4' == inputfile(length-2:length))) then
+        CALL CHECK(NF90_OPEN(inputfile, nf90_nowrite, ncid))
+        ! CALL CHECK(NF90_INQ_VARID(ncid, 'lamb_refine', varid))
+        ! CALL CHECK(NF90_GET_VAR(ncid, varid, refine_degree))
+        ! if (refine_degree > max_iter_spc) then
+        !     print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+        !     CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_bbox关闭文件
+        !     return ! 返回，不进行后续操作
+        ! end if
+        CALL CHECK(NF90_INQ_DIMID(ncid, "xi_vert",  dimID_lon))
+        CALL CHECK(NF90_INQ_DIMID(ncid, "eta_vert", dimID_lat))
+        CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lon, len = lon_points))
+        CALL CHECK(NF90_INQUIRE_DIMENSION(ncid, dimID_lat, len = lat_points))
+        allocate(lon_vert(lon_points, lat_points))
+        allocate(lat_vert(lon_points, lat_points))
+        CALL CHECK(NF90_INQ_VARID(ncid, "lon_vert", varid(1)))
+        CALL CHECK(NF90_INQ_VARID(ncid, "lat_vert", varid(2)))
+        CALL CHECK(NF90_GET_VAR(ncid, varid(1), lon_vert))
+        CALL CHECK(NF90_GET_VAR(ncid, varid(2), lat_vert))
+        CALL CHECK(NF90_CLOSE(ncid))
+        ! 因为读入是边界值，网格数量比边界个数少一个
+        lon_points = lon_points - 1
+        lat_points = lat_points - 1
+        where(lon_vert > 180.)  lon_vert = lon_vert - 360. ! between -180. and 180.
+    else
+        stop "ERROR! must choose 'ncfile' or 'nml' please check!"
+    end if
+
+    ! turn 1D to 2D
+    print*, "lonlat_bound and ngr_bound calculate start"
+    print*, "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+    bound_points = (lon_points + 1) * (lat_points + 1) + 1
+    mode_points = lon_points * lat_points + 1
+    allocate(lonlat_bound(bound_points, 2)); lonlat_bound = -999.
+    allocate(ngr_bound(4, mode_points)); ngr_bound = 1
+    allocate(n_ngr(mode_points)); n_ngr = 4
+
+    idx = 1
+    do j = 1, lat_points + 1, 1
+        do i = 1, lon_points + 1, 1
+            idx = idx + 1
+            lonlat_bound(idx, :) = [lon_vert(i, j), lat_vert(i, j)]
+        end do
+    end do
+    
+    ! ngr_bound calculate, never start from 1 !
+    idx = 1
+    do j = 1, lat_points, 1
+        do i = 1, lon_points, 1
+            idx = idx + 1
+            ngr_bound(:, idx) = [i + (j - 1) * (lon_points + 1),     &
+                                 i + (j - 1) * (lon_points + 1) + 1, &
+                                 i +  j      * (lon_points + 1) + 1, &
+                                 i +  j      * (lon_points + 1)]
+        end do
+    end do
+    ngr_bound = ngr_bound + 1 ! never start from 1 !
+
+    print*, "lon_points : ", lon_points
+    print*, "lat_points : ", lat_points
+    print*, "bound_points : ", bound_points
+    print*, "mode_points  : ", mode_points
+    print*, "minval(lonlat_bound) : ", minval(lonlat_bound(2:bound_points, 1))
+    print*, "maxval(lonlat_bound) : ", maxval(lonlat_bound(2:bound_points, 1))
+    print*, "maxval(lonlat_bound) : ", maxval(lonlat_bound(2:bound_points, 2))
+    print*, "minval(lonlat_bound) : ", minval(lonlat_bound(2:bound_points, 2))
+    print*, "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+    print*, "lonlat_bound and ngr_bound calculate finish"
+    print*, ""
+
+    refine_degree = 0
+    write(refinec, '(I1)') refine_degree
+    if (mask_select == 'mask_domain') then
+        mask_domain_ndm = mask_domain_ndm + 1
+        write(numc, '(I2.2)') mask_domain_ndm
+    else if (mask_select == 'mask_refine') then
+        mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+        write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+    else if (mask_select == 'mask_patch') then
+        mask_patch_ndm = mask_patch_ndm + 1
+        write(numc, '(I2.2)') mask_patch_ndm
+    end if
+    lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_lambert_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+    print*, lndname 
+    CALL Mode4_Mesh_Save(lndname, bound_points, mode_points, lonlat_bound, ngr_bound, n_ngr)
+    print*, "lamb_mask_make finish"
+
+end subroutine lamb_mask_make
+
+subroutine circle_mask_make(inputfile, mask_select)
+    ! 文件类型然后转为nc文件便于读取，，如果是nc就直接赋值
+    use netcdf
+    use consts_coms, only : r8, pathlen, file_dir, mask_domain_ndm, mask_patch_ndm
+    use refine_vars, only : mask_refine_ndm, max_iter_spc
+    use MOD_file_preprocess, only : circle_Mesh_Save ! Add by Rui Zhang
+    implicit none
+    character(pathlen), intent(in) :: inputfile
+    character(*), intent(in) :: mask_select
+    integer :: ncid, varid
+    character(pathlen) :: lndname, line
+    logical :: fexists
+    integer :: i, circle_num, refine_degree, length, io_stat
+    real(r8), allocatable :: circle_points(:,:), circle_radius(:)
+    character(5) :: numc, refinec
+
+    length = len_trim(inputfile)
+    if ('nml' == inputfile(length-2:length)) then
+        ! nml：第一行说明点的个数，第二行说明细化等级，三列的要求，第一列是经度，纬度，半径（km）
+        open(unit=10, file=inputfile, status='old', action='read')
+        REWIND(10)
+        ! 读取第一行（circle_num）
+        read(10, '(A)', iostat=io_stat) line  ! 读取整行
+        if (io_stat /= 0) then
+            print *, "Error: Failed to read circle_num"
+            close(10)
+            stop
+        end if
+        read(line(index(line, '=')+1:), *) circle_num  ! 解析 circle_num
+
+        read(10, '(A)', iostat=io_stat) line  ! 读取整行
+        if (io_stat /= 0) then
+            print *, "Error: Failed to read circle_refine"
+            close(10)
+            stop
+        end if
+        read(line(index(line, '=')+1:), *) refine_degree  ! 解析 close_refine
+        if (refine_degree > max_iter_spc) then
+            print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+            close(10)
+            return ! 返回，不进行后续操作
+        end if
+
+        allocate(circle_points(circle_num, 2))
+        allocate(circle_radius(circle_num))
+        do i = 1, circle_num, 1
+            read(10, *) circle_points(i,1), circle_points(i,2), circle_radius(i)
+        end do
+        close(10)
+
+        ! 存储为nc文件后deallocate
+        write(refinec, '(I1)') refine_degree
+        if (mask_select == 'mask_domain') then
+            mask_domain_ndm = mask_domain_ndm + 1
+            write(numc, '(I2.2)') mask_domain_ndm
+        else if (mask_select == 'mask_refine') then
+            mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+            write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+        else if (mask_select == 'mask_patch') then
+            mask_patch_ndm = mask_patch_ndm + 1
+            write(numc, '(I2.2)') mask_patch_ndm
+        end if
+        lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_circle_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+        CALL circle_Mesh_Save(lndname, circle_num, circle_points, circle_radius)
+        deallocate(circle_points, circle_radius)
+
+    else if (('.nc' == inputfile(length-2:length)) .or. &
+             ('nc4' == inputfile(length-2:length))) then
+        CALL CHECK(NF90_OPEN(trim(inputfile), nf90_nowrite, ncid))! 1. NF90_OPEN 打开文件
+        CALL CHECK(NF90_INQ_VARID(ncid, 'circle_refine', varid))
+        CALL CHECK(NF90_GET_VAR(ncid, varid, refine_degree))
+        CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_bbox关闭文件
+        if (refine_degree > max_iter_spc) then
+            print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+            return ! 返回，不进行后续操作
+        end if
+
+        write(refinec, '(I1)') refine_degree
+        if (mask_select == 'mask_domain') then
+            mask_domain_ndm = mask_domain_ndm + 1
+            write(numc, '(I2.2)') mask_domain_ndm
+        else if (mask_select == 'mask_refine') then
+            mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+            write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+        else if (mask_select == 'mask_patch') then
+            mask_patch_ndm = mask_patch_ndm + 1
+            write(numc, '(I2.2)') mask_patch_ndm
+        end if
+        lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_circle_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+        CALL execute_command_line('cp '//trim(inputfile)//' '//trim(lndname))
+    else
+        stop "ERROR! must choose 'ncfile' or 'nml' please check!"
+    end if
+    print*, lndname 
+
+end subroutine circle_mask_make
+
+subroutine close_mask_make(inputfile, mask_select)
+    ! 文件类型然后转为nc文件便于读取，，如果是nc就直接赋值
+    use netcdf
+    use consts_coms, only : r8, pathlen, file_dir, mask_domain_ndm, mask_patch_ndm
+    use refine_vars, only : mask_refine_ndm, max_iter_spc
+    use MOD_file_preprocess, only : close_Mesh_Save ! Add by Rui Zhang
+    implicit none
+    character(pathlen), intent(in) :: inputfile
+    character(*), intent(in) :: mask_select
+    integer :: ncid, varid
+    character(pathlen) :: lndname, line
+    logical :: fexists
+    integer :: i, close_num, refine_degree, length, io_stat
+    real(r8), allocatable :: close_points(:,:)
+    character(5) :: numc, refinec
+
+    ! 判断线段是否自交，然后对线段进行编号与排序
+    length = len_trim(inputfile)
+    if ('nml' == inputfile(length-2:length)) then
+        ! nml：第一个行说明点的个数，四列的要求，第一列是经度，纬度，半径（km），细化等级（不细化为0）
+        open(unit=10, file=inputfile, status='old', action='read')
+        REWIND(10)
+        ! * 是自由格式，Fortran 会跳过所有非数字字符，直到找到数字部分
+        read(10, '(A)', iostat=io_stat) line  ! 读取整行
+        if (io_stat /= 0) then
+            print *, "Error: Failed to read circle_num"
+            close(10)
+            stop
+        end if
+        read(line(index(line, '=')+1:), *) close_num  ! 解析 close_num
+        
+        read(10, '(A)', iostat=io_stat) line  ! 读取整行
+        if (io_stat /= 0) then
+            print *, "Error: Failed to read close_refine"
+            close(10)
+            stop
+        end if
+        read(line(index(line, '=')+1:), *) refine_degree  ! 解析 close_refine
+        if (refine_degree > max_iter_spc) then
+            print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+            return ! 返回，不进行后续操作
+            close(10)
+        end if
+
+        allocate(close_points(close_num, 2))
+        do i = 1, close_num, 1
+            read(10, *) close_points(i, 1), close_points(i, 2)
+        end do
+        close(10)
+
+        write(refinec, '(I1)') refine_degree
+        if (mask_select == 'mask_domain') then
+            mask_domain_ndm = mask_domain_ndm + 1
+            write(numc, '(I2.2)') mask_domain_ndm
+        else if (mask_select == 'mask_refine') then
+            mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+            write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+        else if (mask_select == 'mask_patch') then
+            mask_patch_ndm = mask_patch_ndm + 1
+            write(numc, '(I2.2)') mask_patch_ndm
+        end if
+        lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_close_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+        CALL close_Mesh_Save(lndname, close_num, close_points)
+        deallocate(close_points)
+
+    else if (('.nc' == inputfile(length-2:length)) .or. &
+             ('nc4' == inputfile(length-2:length))) then
+        CALL CHECK(NF90_OPEN(trim(inputfile), nf90_nowrite, ncid))! 1. NF90_OPEN 打开文件
+        CALL CHECK(NF90_INQ_VARID(ncid, 'close_refine', varid))
+        CALL CHECK(NF90_GET_VAR(ncid, varid, refine_degree))
+        CALL CHECK(NF90_CLOSE(ncid))! 7. NF90_close关闭文件
+        if (refine_degree > max_iter_spc) then
+            print*, "refine_degree > max_iter_spc :", refine_degree, ">", max_iter_spc
+            return ! 返回，不进行后续操作
+        end if
+        
+        write(refinec, '(I1)') refine_degree
+        if (mask_select == 'mask_domain') then
+            mask_domain_ndm = mask_domain_ndm + 1
+            write(numc, '(I2.2)') mask_domain_ndm
+        else if (mask_select == 'mask_refine') then
+            mask_refine_ndm(refine_degree) = mask_refine_ndm(refine_degree) + 1
+            write(numc, '(I2.2)') mask_refine_ndm(refine_degree)
+        else if (mask_select == 'mask_patch') then
+            mask_patch_ndm = mask_patch_ndm + 1
+            write(numc, '(I2.2)') mask_patch_ndm
+        end if
+        lndname = trim(file_dir)// 'tmpfile/'//trim(mask_select)// '_close_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+        CALL execute_command_line('cp '//trim(inputfile)//' '//trim(lndname))
+    else
+        stop "ERROR! must choose 'ncfile' or 'nml' please check!"
+    end if
+    print*, lndname
+ 
+end subroutine close_mask_make
+
 
 subroutine init_consts()
     use consts_coms
@@ -622,8 +1267,8 @@ subroutine init_consts()
 
     ! Standard (Earth) values
 
-    erad = 6371.22e3          ! Earth radius [km]
-    
+    erad = 6371.22e3          ! Earth radius [m]
+    print*, "erad = ", erad, "in the subroutine init_consts() in the mkgrd.F90" 
     ! Secondary values
     erad2 = erad * 2.
     erad4 = erad * 4.
@@ -717,8 +1362,7 @@ end subroutine gridinit
 subroutine gridfile_write()
     ! do not calcullate dismm and disww because no use 
     use netcdf
-    USE refine_vars, only: step
-    use consts_coms, only : r8, pathlen, io6, file_dir, EXPNME, NXP, mode, refine
+    use consts_coms, only : r8, pathlen, io6, file_dir, EXPNME, NXP, mode_grid, refine, step
     use mem_ijtabs, only : mloops, itab_m, itab_w
     use mem_grid, only : nma, nwa, glatw, glonw, glatm, glonm
     use MOD_file_preprocess, only : Unstructured_Mesh_Save ! Add by Rui Zhang
@@ -747,7 +1391,7 @@ subroutine gridfile_write()
     write(nxpc, '(I4.4)')NXP
     write(stepc, '(I2.2)') step
     ! Open gridfile
-    lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '.nc4'
+    lndname = trim(file_dir)// 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '_'// trim(mode_grid)// '.nc4'
 
     write(io6, *) '++++++++++++++++++++++++++++++++++++++++++++++++++++++'
     write(io6, *) 'grid_write: opening file:', lndname
@@ -760,14 +1404,6 @@ subroutine gridfile_write()
     CALL Unstructured_Mesh_Save(lndname, sjx_points, lbx_points, mp, wp, ngrmw, ngrwm)
     
     deallocate(ngrwm, ngrmw, mp, wp)
-
-    if (refine == .false.) then
-       if (mode == 3) then
-          call execute_command_line('cp '//trim(lndname)//' '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_sjx.nc4')
-       else if(mode == 6)then
-          call execute_command_line('cp '//trim(lndname)//' '//trim(file_dir)//'result/gridfile_NXP'//trim(nxpc)//'_lbx.nc4')
-       end if
-    end if
 
 END SUBROUTINE gridfile_write
 
@@ -1640,4 +2276,4 @@ subroutine grid_geometry_hex()
     if (allocated(work)) deallocate(work)
     !$omp end parallel
 end subroutine grid_geometry_hex
-
+  
