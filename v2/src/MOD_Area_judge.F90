@@ -44,18 +44,18 @@ module MOD_Area_judge
 
     ! Determines the primary domain area and processes land/sea masks and patches.
     !
-    !1. If not in `mask_restart` mode:
-    !   - Calculates `IsInDmArea_grid` based on `mask_domain_type` (bbox, lambert, circle, close).
-    !   - Determines `seaorland` mask based on `landtypes_global` for cells within the domain.
-    !   - Saves `IsInDmArea_grid` and related metadata.
-    !2. If `mask_patch_on` is true:
-    !   - If `mask_restart` is true, reads previously saved domain and sea/land masks.
-    !   - Calls `mask_patch_modify` to adjust the `seaorland` mask using patch data.
-    !3. If refinement is enabled and is not 'specified' only:
-    !   - Calculates `IsInRfArea_cal_grid` for threshold-based refinement based on `mask_refine_cal_type`.
-    !   - Validates that the refinement area is within the domain area.
-    !   - Reads necessary threshold datasets for land, ocean, or earth system variables.
-    !   - Saves `IsInRfArea_cal_grid` and its metadata.
+    ! 1. If not in `mask_restart` mode:
+        ! Calculates `IsInDmArea_grid` based on `mask_domain_type` (bbox, lambert, circle, close).
+        ! Determines `seaorland` mask based on `landtypes_global` for cells within the domain.
+        ! Saves `IsInDmArea_grid` and related metadata.
+    ! 2. If `mask_patch_on` is true:
+        ! If `mask_restart` is true, reads previously saved domain and sea/land masks.
+        ! Calls `mask_patch_modify` to adjust the `seaorland` mask using patch data.
+    ! 3. If refinement is enabled and is not 'specified' only:
+        ! Calculates `IsInRfArea_cal_grid` for threshold-based refinement based on `mask_refine_cal_type`.
+        ! Validates that the refinement area is within the domain area.
+        ! Reads necessary threshold datasets for land, ocean, or earth system variables.
+        ! Saves `IsInRfArea_cal_grid` and its metadata.
     SUBROUTINE Area_judge()
         IMPLICIT NONE
         integer :: i, j, sum_land_grid, iter        ! Loop counters, sum of land grid cells, iteration variable (refinement degree).
@@ -265,7 +265,7 @@ module MOD_Area_judge
         if (maxlat_RfArea > minlat_RfArea .AND. minlat_RfArea /=1) stop "ERROR! maxlat_RfArea > minlat_RfArea" ! minlat_RfArea=1 if no area found
         
         ! Check if refinement area is within domain.
-        !THIS IS also confusing
+        ! THIS IS also confusing
         if (maxlon_RfArea /=1 .AND. minlat_RfArea /=1) then ! Proceed only if a valid refinement area was found
             !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC)&
             !$OMP PRIVATE(i, j)
@@ -616,10 +616,10 @@ module MOD_Area_judge
     !1. Checks for self-intersections in the polygon.
     !2. Determines its bounding box and handles dateline crossing for the bounding box.
     !3. For each latitude row spanning the polygon:
-        !- Calculates intersections of a horizontal ray with all polygon segments.
-        !- Sorts intersection longitudes.
-        !- Marks source grid cells between odd-even pairs of intersections as inside.
-        !- Handles dateline crossing for filling.
+        ! Calculates intersections of a horizontal ray with all polygon segments.
+        ! Sorts intersection longitudes.
+        ! Marks source grid cells between odd-even pairs of intersections as inside.
+        ! Handles dateline crossing for filling.
     SUBROUTINE IsInArea_close_Calculation(type_select, iter, ndm, IsInArea_grid, numpatch)
         ! Calculates containment for closed polygons using the ray casting method.
         ! Accounts for crossing the 180th meridian.
@@ -670,12 +670,12 @@ module MOD_Area_judge
                 end if
             end do
             point_c(2) = abs(edgee_temp-edgew_temp)
-            icl_point = 0                     ! Initialize dateline crossing flag.
-            if (point_c(1) > point_c(2)) then ! If max segment longitude span > overall BBox longitude span.
+            icl_point = 0                                      ! Initialize dateline crossing flag.
+            if (point_c(1) > point_c(2)) then                  ! If max segment longitude span > overall BBox longitude span.
                 write(io6, *)  "Polygon crosses 180 meridian! Modifying coordinates for ray casting."
                 icl_point = 1
                 edgew_temp = -180.0_r8; edgee_temp =  180.0_r8 ! Expand BBox.
-                CALL CheckCrossing(close_num, close_points) ! Adjust polygon coordinates.
+                CALL CheckCrossing(close_num, close_points)    ! Adjust polygon coordinates.
                 write(io6, *)  "Adjusted BBox: W=", edgew_temp, " E=", edgee_temp, " N=", edgen_temp, " S=", edges_temp
             else
                 write(io6, *)  "Polygon does not cross 180 meridian."
@@ -689,7 +689,7 @@ module MOD_Area_judge
             
             ! Get intersections of rays with polygon segments for each latitude row.
             allocate(ray_segment_intersect_lon(minlat_source - maxlat_source + 1, close_num*2)) ! Max intersections = num_segments * 2 (worst case).
-            ray_segment_intersect_lon = -9999.0_r8 ! Initialize with a very small number.
+            ray_segment_intersect_lon = -9999.0_r8     ! Initialize with a very small number.
             allocate(ray_segment_intersect_num(minlat_source - maxlat_source + 1)); ray_segment_intersect_num = 0
 
             do j = maxlat_source, minlat_source - 1, 1 ! For each latitude row in the polygon's lat range.
@@ -890,8 +890,8 @@ module MOD_Area_judge
 
     ! Checks if two line segments intersect using the cross-product method.
     ! Calculates four cross products to determine if the segments straddle each other.
-    !Assumes segments are (lon1,lat1)-(lon2,lat2) and (lon3,lat3)-(lon4,lat4).
-    !return .TRUE. if segments intersect, .FALSE. otherwise.
+    ! Assumes segments are (lon1,lat1)-(lon2,lat2) and (lon3,lat3)-(lon4,lat4).
+    ! return .TRUE. if segments intersect, .FALSE. otherwise.
     LOGICAL function segments_intersect(lat1, lon1, lat2, lon2, lat3, lon3, lat4, lon4)
         implicit none
         real(r8), intent(in) :: lat1, lon1, lat2, lon2, lat3, lon3, lat4, lon4 ! Coordinates of segment endpoints.
@@ -1052,10 +1052,10 @@ module MOD_Area_judge
 
     ! Adjusts longitudes by +/- 180 degrees if they cross the dateline.
     ! This is a specific coordinate transformation used when a polygon/set of points
-    !is known to cross the 180-degree meridian. It shifts points with negative longitudes
-    !by +180 and positive by -180. This is NOT a general normalization to [-180, 180]
-    !but a specific transformation likely for a particular geometric algorithm
-    !that expects points to be on one side of a shifted meridian.
+    ! is known to cross the 180-degree meridian. It shifts points with negative longitudes
+    ! by +180 and positive by -180. This is NOT a general normalization to [-180, 180]
+    ! but a specific transformation likely for a particular geometric algorithm
+    ! that expects points to be on one side of a shifted meridian.
     SUBROUTINE CheckCrossing(num_edges, points)
         implicit none
         integer, intent(in) :: num_edges                           ! Number of points.
@@ -1072,11 +1072,11 @@ module MOD_Area_judge
 
     ! Checks if a point is inside a circle on a sphere.
     ! Calculates the great-circle distance between `point_i` and circle center `point_c`
-    !using the Haversine formula.
+    ! using the Haversine formula.
     ! point_i Input: Coordinates [lon, lat] of the point to check.
     ! point_c Input: Coordinates [lon, lat] of the circle's center.
     ! center_radius Input: Radius of the circle in kilometers.
-    !@return .TRUE. if `point_i` is inside or on the boundary of the circle, .FALSE. otherwise.
+    ! return .TRUE. if `point_i` is inside or on the boundary of the circle, .FALSE. otherwise.
     LOGICAL FUNCTION is_point_in_circle(point_i, point_c, center_radius)
         ! Determines if a point is inside a circle based on distance.
         real(r8), intent(in) :: point_i(2), point_c(2)  ! Point to check, circle center [lon, lat] in degrees.
@@ -1092,7 +1092,7 @@ module MOD_Area_judge
     ! Calculates the great-circle distance between two points on a sphere using the Haversine formula.
     ! point_i Input: Coordinates [lon, lat] of the first point in degrees.
     ! point_c Input: Coordinates [lon, lat] of the second point in degrees.
-    !@return Distance in kilometers.
+    ! return Distance in kilometers.
     REAL(r8) Function haversine(point_i, point_c)
 
         implicit none
@@ -1116,13 +1116,13 @@ module MOD_Area_judge
 
     ! Checks if a point is inside a convex polygon using the cross-product method.
     ! Iterates through the edges of the polygon. For each edge (p1, p2), it calculates
-    !the cross product of vectors (p2-p1) and (ndm_point-p1). If the sign of the cross product
-    !is consistent for all edges (all positive or all negative, depending on vertex order),
-    !the point is inside. If signs change, the point is outside.
+    ! the cross product of vectors (p2-p1) and (ndm_point-p1). If the sign of the cross product
+    ! is consistent for all edges (all positive or all negative, depending on vertex order),
+    ! the point is inside. If signs change, the point is outside.
     ! polygon Input: Array of vertex coordinates [(lon,lat)] for the polygon. Assumed max 7 vertices.
     ! ndm_point Input: Coordinates [lon, lat] of the point to check.
     ! num_edges Input: Actual number of vertices/edges in the polygon.
-    !@return .TRUE. if the point is inside or on the boundary, .FALSE. otherwise.
+    ! return .TRUE. if the point is inside or on the boundary, .FALSE. otherwise.
     LOGICAL FUNCTION is_point_in_convex_polygon(polygon, ndm_point, num_edges)
         ! Determines if a point is inside a convex polygon.
         real(r8), intent(in) :: polygon(7, 2)                                ! Polygon vertices (max 7 allowed by fixed dimension).
@@ -1159,11 +1159,11 @@ module MOD_Area_judge
 
     ! Calculates the 2D cross product of two vectors P1P2 and P1P3.
     ! (P2 - P1) x (P3 - P1) = (p2x-p1x)*(p3y-p1y) - (p2y-p1y)*(p3x-p1x).
-    !The sign indicates whether P3 is to the left or right of vector P1P2.
+    ! The sign indicates whether P3 is to the left or right of vector P1P2.
     ! p1 Input: Coordinates of point P1.
     ! p2 Input: Coordinates of point P2.
     ! p3 Input: Coordinates of point P3.
-    !@return Scalar result of the 2D cross product.
+    ! return Scalar result of the 2D cross product.
     REAL FUNCTION cross_product(p1, p2, p3)
         ! Calculates cross product: (p2 - p1) × (p3 - p1).
         real(r8), intent(in) :: p1(2), p2(2), p3(2)
