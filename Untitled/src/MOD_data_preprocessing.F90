@@ -1,8 +1,9 @@
-module MOD_data_preprocess
+module MOD_data_preprocessing
 
    USE consts_coms, only : io6, r8, source_dir, nlons_source, nlats_source, lcs, maxlc, refine, mesh_type
    use refine_vars, only: refine_onelayer_Lnd, refine_twolayer_Lnd, refine_onelayer_Ocn, refine_onelayer_Earth
    USE netcdf
+   USE MOD_utilities, only : CHECK
    implicit none
    integer,  allocatable, public :: landtypes_global(:, :), landtypes(:, :)
    real(r8), allocatable, public :: lon_i(:), lat_i(:)
@@ -282,4 +283,4 @@ module MOD_data_preprocess
 
    END SUBROUTINE data_read_twolayer
 
-END Module MOD_data_preprocess
+END Module MOD_data_preprocessing

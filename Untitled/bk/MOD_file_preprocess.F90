@@ -2,6 +2,7 @@ module MOD_file_preprocess
    ! 可以考虑把labdtype数据存在这里也是挺好的，还有一个问题
    USE consts_coms, only: r8, pathlen
    USE netcdf
+   USE MOD_utilities, only : CHECK
    implicit none
 
    contains
@@ -33,33 +34,6 @@ module MOD_file_preprocess
   
    END SUBROUTINE Mode4_Mesh_Read
 
-   SUBROUTINE Mode4_Mesh_Save(lndname, bound_points, mode_points, lonlat_bound, ngr_bound, n_ngr)
-
-      IMPLICIT NONE
-      
-      character(pathlen), intent(in) :: lndname
-      integer :: ncid, dimID_bound, dimID_points, dimID_two, dimID_four, varid(3)
-      integer, intent(in) :: bound_points, mode_points
-      real(r8), dimension(:, :), allocatable, intent(in) :: lonlat_bound
-      integer,  dimension(:, :), allocatable, intent(in) :: ngr_bound
-      integer,  dimension(:),    allocatable, intent(in) :: n_ngr
- 
-      CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncid))
-      CALL CHECK(NF90_DEF_DIM(ncid, "bound_points", bound_points, DimID_bound))
-      CALL CHECK(NF90_DEF_DIM(ncid, "mode_points", mode_points, DimID_points))
-      CALL CHECK(NF90_DEF_DIM(ncid, "two", 2, DimID_two))
-      CALL CHECK(NF90_DEF_DIM(ncid, "four", 4, DimID_four))
-      CALL CHECK(NF90_DEF_VAR(ncid, "lonlat_bound", NF90_FLOAT, (/ DimID_bound, DimID_two /), varid(1)))
-      CALL CHECK(NF90_DEF_VAR(ncid, "ngr_bound", NF90_INT, (/ DimID_four, DimID_points /), varid(2)))
-      CALL CHECK(NF90_DEF_VAR(ncid, "n_ngr", NF90_INT, (/ DimID_points /), varid(3)))
-      CALL CHECK(NF90_ENDDEF(ncid))
-      CALL CHECK(NF90_PUT_VAR(ncid, varid(1), lonlat_bound))
-      CALL CHECK(NF90_PUT_VAR(ncid, varid(2), ngr_bound))
-      CALL CHECK(NF90_PUT_VAR(ncid, varid(3), n_ngr))
-      CALL CHECK(NF90_CLOSE(ncid))
-      print*, "mode4 mesh save finish"
-
-   END SUBROUTINE Mode4_Mesh_Save
 
    SUBROUTINE Unstructured_Mesh_Read(lndname, sjx_points, lbx_points, mp, wp, ngrmw, ngrwm, n_ngrwm)
       IMPLICIT NONE

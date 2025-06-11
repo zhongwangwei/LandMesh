@@ -4,7 +4,7 @@ module MOD_refine_lbx
     USE NETCDF
     USE MOD_GetContain, only: CheckCrossing
     USE MOD_GetThreshold, only : ref_sjx
-    use MOD_file_preprocess, only : Unstructured_Mesh_Save, Unstructured_Mesh_Read ! Add by Rui Zhang
+    use MOD_utilities, only : Unstructured_Mesh_Save, Unstructured_Mesh_Read ! Add by Rui Zhang
     implicit none
     Contains
 
@@ -32,7 +32,7 @@ module MOD_refine_lbx
         integer,  allocatable :: ngrmw(:, :), ngrwm(:, :) ! 用zero and one 表示顶点是否存在
         integer,  allocatable :: ngrmw_new(:, :), ngrwm_new(:, :)  ! m/w点相邻的w/m点索引(细化后)
         integer,  allocatable :: ngrmw_f(:, :), ngrwm_f(:, :)      ! m/w点相邻的w/m点索引(最终)
-        integer,  allocatable :: n_ngrwm_f(:) ! n_ngrwm define in the MOD_file_preprocess.F90
+        integer,  allocatable :: n_ngrwm_f(:) ! n_ngrwm define in the MOD_utilities.F90
         integer,  allocatable :: ngrmm(:, :)        ! m点相邻的m点索引(细化前)
         integer,  allocatable :: ngrmm_new(:, :)    ! m点相邻的m点索引(细化后)
         integer,  allocatable :: mrl(:)             ! 三角形网格细化程度(细化前)

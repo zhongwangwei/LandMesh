@@ -1,3 +1,13 @@
+!DESCRIPTION
+!===========
+! This module contains subroutines for icosahedron generation
+!
+!REVISION HISTORY
+!----------------
+! 2025.06.11  Zhongwang Wei @ SYSU (revised version)
+! 2025.06.10  Rui Zhang @ SYSU (original version)
+! first version from Fan et al. 2024, modified by Zhongwang Wei @ SYSU
+! initial version from OLAM, modified by Zhongwang Wei @ SYSU
 !===============================================================================
 ! OLAM was originally developed at Duke University by Robert Walko, Martin Otte,
 ! and David Medvigy in the project group headed by Roni Avissar.  Development

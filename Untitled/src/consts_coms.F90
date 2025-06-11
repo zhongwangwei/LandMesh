@@ -1,3 +1,22 @@
+!DESCRIPTION
+!===========
+!===============================================================================
+! Constants and common variables for the mesh generation program.
+! This module contains constants and common variables used throughout
+! the mesh generation program. It includes precision types, mathematical
+! constants, and various parameters for the mesh generation process.
+!===============================================================================
+
+
+!REVISION HISTORY
+!----------------
+! 2025.06.11  Zhongwang Wei @ SYSU (revised version)
+! 2025.06.10  Rui Zhang @ SYSU (original version)
+! 2023.02.21  Zhongwang Wei @ SYSU
+! 2021.12.02  Zhongwang Wei @ SYSU 
+! 2020.10.01  Zhongwang Wei @ SYSU
+
+
 !===============================================================================
 ! OLAM was originally developed at Duke University by Robert Walko, Martin Otte,
 ! and David Medvigy in the project group headed by Roni Avissar.  Development
@@ -32,7 +51,7 @@
 Module consts_coms
 
     implicit none
-
+    integer, parameter :: io6 = 6
     ! Single (real*4) and double (real*8) precision real kinds:
     integer, parameter :: r4 = selected_real_kind(6, 37)
     integer, parameter :: r8 = selected_real_kind(13, 300)
@@ -81,7 +100,7 @@ Module consts_coms
     real(r8) :: Extr_sjx_GXR0(2) = 0.0_r8
     integer :: iunit = 10
     integer :: step = 1
-    integer :: io6
+    !integer :: io6
     integer :: nxp
     integer :: GXR
     integer :: openmp

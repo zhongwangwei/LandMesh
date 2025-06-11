@@ -1,8 +1,9 @@
-Module MOD_grid_preprocess
+Module MOD_grid_preprocessing
     USE NETCDF
     USE consts_coms
     USE refine_vars
-    USE MOD_file_preprocess, only : Unstructured_Mesh_Read
+    USE MOD_utilities, only : Unstructured_Mesh_Read
+    use MOD_utilities, only : CHECK
     implicit none
 
     Contains
@@ -17,22 +18,22 @@ Module MOD_grid_preprocess
         character(LEN = 5) :: nxpc, stepc, GXRC
 
         ! read unstructure mesh
-        print*, "start to read unstructure mesh data in the Module MOD_grid_preprocess in Line 16"
+        write(io6, *)   "start to read unstructure mesh data in the Module MOD_grid_preprocess in Line 16"
         ! 读取未细化初始网格数据
         write(nxpc, '(I4.4)') NXP
         write(stepc, '(I2.2)') step
         lndname = trim(file_dir) // 'gridfile/gridfile_NXP' // trim(nxpc) // '_'//trim(stepc)// '_' // trim(mode_grid) // '.nc4'
-        print*,lndname
+        write(io6, *)  lndname
         call Unstructured_Mesh_Read(lndname, sjx_points, lbx_points, mp, wp, ngrmw, ngrwm, n_ngrwm)
-        print*, "The unstructured grid data reading have done "
-        print*, ""
-        print*, "In total, triangular mesh number: ", sjx_points, "polygon mesh number: ", lbx_points
-        print*, ""
+        write(io6, *)   "The unstructured grid data reading have done "
+        write(io6, *)   ""
+        write(io6, *)   "In total, triangular mesh number: ", sjx_points, "polygon mesh number: ", lbx_points
+        write(io6, *)   ""
 
         GXR_iter = 0
-        print*, "SpringAjustment_global start"
+        write(io6, *)   "SpringAjustment_global start"
         call SpringAjustment_global(GXR_iter, sjx_points, lbx_points, ngrmw, ngrwm, n_ngrwm, mp, wp)
-        print*, "SpringAjustment_global finish"
+        write(io6, *)   "SpringAjustment_global finish"
 
         if (GXR == 0) return
         ! 如果不为0，则进行循环，将网格分辨率加倍，目前是对全局，后面会改为只对局部网格生效
@@ -41,9 +42,9 @@ Module MOD_grid_preprocess
         CALL execute_command_line('cp '//trim(lndname)//' '//trim(inputfile))
 
         ! 这个应该是网格加倍之后采用的东西
-        print*, "SpringAjustment_global start"
+        write(io6, *)   "SpringAjustment_global start"
         call SpringAjustment_global(GXR_iter, sjx_points, lbx_points, ngrmw, ngrwm, n_ngrwm, mp, wp)
-        print*, "SpringAjustment_global finish"
+        write(io6, *)   "SpringAjustment_global finish"
 
     END SUBROUTINE grid_preprocess
 
@@ -90,12 +91,12 @@ Module MOD_grid_preprocess
             else if (n_ngrwm_f(i) == 6) then
                 num_lbx = num_lbx + 1
             else
-                print*, "n_ngrwm_f(i) = ", n_ngrwm_f(i)
+                write(io6, *)   "n_ngrwm_f(i) = ", n_ngrwm_f(i)
                 stop "ERROR! n_ngrwm_f(i) must be 5 or 6"
             end if
         end do
-        print*, "num_wbx = ", num_wbx
-        print*, "num_lbx = ", num_lbx
+        write(io6, *)   "num_wbx = ", num_wbx
+        write(io6, *)   "num_lbx = ", num_lbx
 
         ! for sjx
         ! allocate(length_sjx(0:max_sa_iter, num_sjx, 3)); length_sjx(:, :, :) = 0.
@@ -124,7 +125,7 @@ Module MOD_grid_preprocess
         Extr_lbx_temp = 0.; Eavg_lbx_temp = 0.; Savg_lbx_temp = 0.;
 
         ! 弹性调整&计算每次调整后的三角形网格质量
-        print*, "开始弹性调整"
+        write(io6, *)   "开始弹性调整"
         allocate(fra_sjx(num_sjx, 3))
         allocate(MoveDis(num_dbx, 2)) ! 记录w点在x、y方向上的调整距离
         allocate(adjust_sjx_flag(num_sjx));  adjust_sjx_flag = 1 ! 三角形初始化的时候都需要使用，不可跳过
@@ -136,14 +137,14 @@ Module MOD_grid_preprocess
         
         do while(End_SpringAjustment .eqv. .false.)! 问题在于每次都要对全局进行调整，而且调整的方法是固定的
             End_SpringAjustment = .true.
-            ! print*, "meshquality calculate start, sa_iter = ", sa_iter
+            ! write(io6, *)   "meshquality calculate start, sa_iter = ", sa_iter
             ! 每次调整后，再计算三角形，五六七边形的网格质量
             Call TriMeshQuality(    num_sjx, wp_f, ngrmw_f, adjust_sjx_flag, length_sjx_temp, angle_sjx_temp, Extr_sjx_temp, Eavg_sjx_temp, Savg_sjx_temp, less30_temp)! 三角形网格质量
             ! tri
             ! length_sjx(sa_iter, :, :) = length_sjx_temp
             angle_sjx(sa_iter, :, :)  = angle_sjx_temp
-            ! print*, "meshquality calculate finish, sa_iter = ", sa_iter
-            print*, "第", sa_iter, "次弹性调整完成，调整角度个数为", k
+            ! write(io6, *)   "meshquality calculate finish, sa_iter = ", sa_iter
+            write(io6, *)   "第", sa_iter, "次弹性调整完成，调整角度个数为", k
             if (mod(sa_iter, 10) == 0) then
                 Call PolyMeshQuality(5, num_dbx, mp_f, ngrwm_f, n_ngrwm_f, adjust_dbx_flag, angle_wbx_temp, Extr_wbx_temp, Eavg_wbx_temp, Savg_wbx_temp)! 五边形网格质量
                 Call PolyMeshQuality(6, num_dbx, mp_f, ngrwm_f, n_ngrwm_f, adjust_dbx_flag, angle_lbx_temp, Extr_lbx_temp, Eavg_lbx_temp, Savg_lbx_temp)! 六边形网格质量
@@ -164,11 +165,11 @@ Module MOD_grid_preprocess
                 Eavg_lbx(sa_iter, :)  = Eavg_lbx_temp
                 Savg_lbx(sa_iter)     = Savg_lbx_temp
 
-                print*, "三角形边长：", minval(length_sjx_temp(2:num_sjx, :)), maxval(length_sjx_temp(2:num_sjx, :))
-                print*, "三角形角度：", minval(angle_sjx_temp(2:num_sjx, :)), maxval(angle_sjx_temp(2:num_sjx, :))
-                print*, "五边形角度：", minval(angle_wbx_temp), maxval(angle_wbx_temp)
-                print*, "六边形角度：", minval(angle_lbx_temp), maxval(angle_lbx_temp)
-                print*, ""
+                write(io6, *)   "三角形边长：", minval(length_sjx_temp(2:num_sjx, :)), maxval(length_sjx_temp(2:num_sjx, :))
+                write(io6, *)   "三角形角度：", minval(angle_sjx_temp(2:num_sjx, :)), maxval(angle_sjx_temp(2:num_sjx, :))
+                write(io6, *)   "五边形角度：", minval(angle_wbx_temp), maxval(angle_wbx_temp)
+                write(io6, *)   "六边形角度：", minval(angle_lbx_temp), maxval(angle_lbx_temp)
+                write(io6, *)   ""
             end if
             if (GXR_iter == 0) cycle ! 直接跳出循环
 
@@ -208,10 +209,10 @@ Module MOD_grid_preprocess
             end do
 
             !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            print*, "new scheme, k = ", k
+            write(io6, *)   "new scheme, k = ", k
             if (k == 0) cycle
-            print*, "max(fra_sjx) = ", maxval(fra_sjx(1:k, 1)), maxval(fra_sjx(1:k, 2)), maxval(fra_sjx(1:k, 3))
-            print*, "min(fra_sjx) = ", minval(fra_sjx(1:k, 1)), minval(fra_sjx(1:k, 2)), minval(fra_sjx(1:k, 3))
+            write(io6, *)   "max(fra_sjx) = ", maxval(fra_sjx(1:k, 1)), maxval(fra_sjx(1:k, 2)), maxval(fra_sjx(1:k, 3))
+            write(io6, *)   "min(fra_sjx) = ", minval(fra_sjx(1:k, 1)), minval(fra_sjx(1:k, 2)), minval(fra_sjx(1:k, 3))
 
             ! 全部弹性调整后，再调整三角形顶点的经纬度
             do i = 2, num_dbx, 1
@@ -239,7 +240,7 @@ Module MOD_grid_preprocess
                     mp_f(i, 1:2) = (sjx(1, 1:2) + sjx(2, 1:2) + sjx(3, 1:2)) / 3.
                 end if
             end do
-            ! print*, "SpringAdjust finish sa_iter = ", sa_iter
+            ! write(io6, *)   "SpringAdjust finish sa_iter = ", sa_iter
             ! 不出现钝角或者达到最大调整次数的时候就退出while循环！
             if ((k /= 0) .and. (sa_iter < max_sa_iter)) End_SpringAjustment = .false.
             sa_iter = sa_iter + 1
@@ -250,7 +251,7 @@ Module MOD_grid_preprocess
         deallocate(angle_sjx_temp, angle_wbx_temp, angle_lbx_temp)
         
         lndname = trim(file_dir) // "result/quality_NXP" // trim(nxpc) // '_' // trim(stepc) // "_global.nc4"
-        print*, lndname
+        write(io6, *)   lndname
         CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncID))
         CALL CHECK(NF90_DEF_DIM(ncID, "num_iter", max_sa_iter + 1, lpDimID))
         CALL CHECK(NF90_DEF_DIM(ncID, "dim_a", 2, twDimID))
@@ -281,7 +282,7 @@ Module MOD_grid_preprocess
         deallocate(Extr_sjx, Eavg_sjx, Savg_sjx, less30)
         deallocate(Extr_wbx, Eavg_wbx, Savg_wbx)
         deallocate(Extr_lbx, Eavg_lbx, Savg_lbx)
-        print*, "弹性调整结束"
+        write(io6, *)   "弹性调整结束"
         if (GXR_iter == 0) Extr_sjx_GXR0 = Extr_sjx_temp
 
     END SUBROUTINE SpringAjustment_global
@@ -333,10 +334,10 @@ Module MOD_grid_preprocess
                 num_qbx = num_qbx + 1
             end if
         end do
-        print*, "num_wbx = ", num_wbx
-        print*, "num_lbx = ", num_lbx
-        print*, "num_qbx = ", num_qbx 
-        if (num_dbx-1 /= num_wbx + num_lbx + num_qbx) print*, "存在小于五边形的多边形"
+        write(io6, *)   "num_wbx = ", num_wbx
+        write(io6, *)   "num_lbx = ", num_lbx
+        write(io6, *)   "num_qbx = ", num_qbx 
+        if (num_dbx-1 /= num_wbx + num_lbx + num_qbx) write(io6, *)   "存在小于五边形的多边形"
 
         ! for sjx
         ! allocate(length_sjx(0:max_sa_iter, num_sjx, 3)); length_sjx(:, :, :) = 0.
@@ -374,7 +375,7 @@ Module MOD_grid_preprocess
         Extr_qbx_temp = 0.; Eavg_qbx_temp = 0.; Savg_qbx_temp = 0.;
 
         ! 弹性调整&计算每次调整后的三角形网格质量
-        print*, "开始弹性调整"
+        write(io6, *)   "开始弹性调整"
         allocate(fra_sjx(num_sjx-(sjx_points - num_ref)+1, 3))
         allocate(MoveDis(num_dbx, 2)) ! 记录w点在x、y方向上的调整距离
         allocate(adjust_sjx_flag(num_sjx));  adjust_sjx_flag = 1 ! 三角形初始化的时候都需要使用，不可跳过
@@ -386,15 +387,15 @@ Module MOD_grid_preprocess
         
         do while(End_SpringAjustment .eqv. .false.)! 问题在于每次都要对全局进行调整，而且调整的方法是固定的
             End_SpringAjustment = .true.
-            ! print*, "meshquality calculate start, sa_iter = ", sa_iter
+            ! write(io6, *)   "meshquality calculate start, sa_iter = ", sa_iter
             ! 每次调整后，再计算三角形，五六七边形的网格质量
             adjust_sjx_flag = 1
             Call TriMeshQuality(    num_sjx, wp_f, ngrmw_f, adjust_sjx_flag, length_sjx_temp, angle_sjx_temp, Extr_sjx_temp, Eavg_sjx_temp, Savg_sjx_temp, less30_temp)! 三角形网格质量
             ! tri
             ! length_sjx(sa_iter, :, :) = length_sjx_temp
             angle_sjx(sa_iter, :, :)  = angle_sjx_temp
-            ! print*, "meshquality calculate finish, sa_iter = ", sa_iter
-            print*, "第", sa_iter, "次弹性调整完成，调整角度个数为", k
+            ! write(io6, *)   "meshquality calculate finish, sa_iter = ", sa_iter
+            write(io6, *)   "第", sa_iter, "次弹性调整完成，调整角度个数为", k
             if (mod(sa_iter, 10) == 0) then
                 adjust_dbx_flag = 1
                 Call PolyMeshQuality(5, num_dbx, mp_f, ngrwm_f, n_ngrwm_f, adjust_dbx_flag, angle_wbx_temp, Extr_wbx_temp, Eavg_wbx_temp, Savg_wbx_temp)! 五边形网格质量
@@ -421,15 +422,15 @@ Module MOD_grid_preprocess
                 Eavg_qbx(sa_iter, :)  = Eavg_qbx_temp
                 Savg_qbx(sa_iter)     = Savg_qbx_temp
 
-                print*, "三角形边长：", minval(length_sjx_temp(2:num_sjx, :)), maxval(length_sjx_temp(2:num_sjx, :))
-                print*, "三角形角度：", minval(angle_sjx_temp(2:num_sjx, :)), maxval(angle_sjx_temp(2:num_sjx, :))
-                print*, "五边形角度：", minval(angle_wbx_temp), maxval(angle_wbx_temp)
-                print*, "六边形角度：", minval(angle_lbx_temp), maxval(angle_lbx_temp)
-                print*, "七边形角度：", minval(angle_qbx_temp), maxval(angle_qbx_temp)
-                print*, ""
+                write(io6, *)   "三角形边长：", minval(length_sjx_temp(2:num_sjx, :)), maxval(length_sjx_temp(2:num_sjx, :))
+                write(io6, *)   "三角形角度：", minval(angle_sjx_temp(2:num_sjx, :)), maxval(angle_sjx_temp(2:num_sjx, :))
+                write(io6, *)   "五边形角度：", minval(angle_wbx_temp), maxval(angle_wbx_temp)
+                write(io6, *)   "六边形角度：", minval(angle_lbx_temp), maxval(angle_lbx_temp)
+                write(io6, *)   "七边形角度：", minval(angle_qbx_temp), maxval(angle_qbx_temp)
+                write(io6, *)   ""
             end if
 
-            ! print*, "springAdjust start, sa_iter = ", sa_iter
+            ! write(io6, *)   "springAdjust start, sa_iter = ", sa_iter
             if (.true.) then
                 k = 0 ! 记录钝角三角形个数（需要调整的角度的个数）
                 MoveDis = 0. ! 调整距离初始化为0
@@ -467,13 +468,13 @@ Module MOD_grid_preprocess
                 end do
 
                 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                print*, "new scheme, k = ", k
+                write(io6, *)   "new scheme, k = ", k
                 if (k == 0) cycle
-                print*, "max(fra_sjx) = ", maxval(fra_sjx(1:k, 1)), maxval(fra_sjx(1:k, 2)), maxval(fra_sjx(1:k, 3))
-                print*, "min(fra_sjx) = ", minval(fra_sjx(1:k, 1)), minval(fra_sjx(1:k, 2)), minval(fra_sjx(1:k, 3))
+                write(io6, *)   "max(fra_sjx) = ", maxval(fra_sjx(1:k, 1)), maxval(fra_sjx(1:k, 2)), maxval(fra_sjx(1:k, 3))
+                write(io6, *)   "min(fra_sjx) = ", minval(fra_sjx(1:k, 1)), minval(fra_sjx(1:k, 2)), minval(fra_sjx(1:k, 3))
             end if
 
-            print*, ""
+            write(io6, *)   ""
             ! 全部弹性调整后，再调整三角形顶点的经纬度
             do i = 2, num_dbx, 1
                 if (adjust_dbx_flag(i) == 0) cycle ! jump out if not change
@@ -500,16 +501,16 @@ Module MOD_grid_preprocess
                     mp_f(i, 1:2) = (sjx(1, 1:2) + sjx(2, 1:2) + sjx(3, 1:2)) / 3.
                 end if
             end do
-            ! print*, "SpringAdjust finish sa_iter = ", sa_iter
+            ! write(io6, *)   "SpringAdjust finish sa_iter = ", sa_iter
             ! 不出现钝角或者达到最大调整次数的时候就退出while循环！
             if ((k /= 0) .and. (sa_iter < max_sa_iter)) End_SpringAjustment = .false.
             sa_iter = sa_iter + 1
         end do ! while(End_SpringAjustment .eqv. .false.)
-        if ((k == 0) .and. (sa_iter < max_sa_iter))  print*, "没有需要调整的三角形，退出"
-        if ((k /= 0) .and. (sa_iter >= max_sa_iter)) print*, "达到角度调整次数上限，退出"
+        if ((k == 0) .and. (sa_iter < max_sa_iter))  write(io6, *)   "没有需要调整的三角形，退出"
+        if ((k /= 0) .and. (sa_iter >= max_sa_iter)) write(io6, *)   "达到角度调整次数上限，退出"
 
         lndname = trim(file_dir) // "result/quality_NXP" // trim(nxpc) // '_' // trim(stepc) // "_refine.nc4"
-        print*, lndname
+        write(io6, *)   lndname
         CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncID))
         CALL CHECK(NF90_DEF_DIM(ncID, "num_iter", max_sa_iter + 1, lpDimID))
         CALL CHECK(NF90_DEF_DIM(ncID, "dim_a", 2, twDimID))
@@ -547,20 +548,20 @@ Module MOD_grid_preprocess
         deallocate(Extr_wbx, Eavg_wbx, Savg_wbx)
         deallocate(Extr_lbx, Eavg_lbx, Savg_lbx)
         deallocate(Extr_qbx, Eavg_qbx, Savg_qbx)
-        print*, "弹性调整结束"
-        print*, "最后的网格质量如下："
+        write(io6, *)   "弹性调整结束"
+        write(io6, *)   "最后的网格质量如下："
         adjust_sjx_flag = 1
         adjust_dbx_flag = 1
         Call TriMeshQuality(    num_sjx, wp_f, ngrmw_f, adjust_sjx_flag, length_sjx_temp, angle_sjx_temp, Extr_sjx_temp, Eavg_sjx_temp, Savg_sjx_temp, less30_temp)! 三角形网格质量            
         Call PolyMeshQuality(5, num_dbx, mp_f, ngrwm_f, n_ngrwm_f, adjust_dbx_flag, angle_wbx_temp, Extr_wbx_temp, Eavg_wbx_temp, Savg_wbx_temp)! 五边形网格质量
         Call PolyMeshQuality(6, num_dbx, mp_f, ngrwm_f, n_ngrwm_f, adjust_dbx_flag, angle_lbx_temp, Extr_lbx_temp, Eavg_lbx_temp, Savg_lbx_temp)! 六边形网格质量
         Call PolyMeshQuality(7, num_dbx, mp_f, ngrwm_f, n_ngrwm_f, adjust_dbx_flag, angle_qbx_temp, Extr_qbx_temp, Eavg_qbx_temp, Savg_qbx_temp)! 七边形网格质量 
-        print*, "三角形边长：", minval(length_sjx_temp(2:num_sjx, :)), maxval(length_sjx_temp(2:num_sjx, :))
-        print*, "三角形角度：", minval(angle_sjx_temp(2:num_sjx, :)), maxval(angle_sjx_temp(2:num_sjx, :))
-        print*, "五边形角度：", minval(angle_wbx_temp), maxval(angle_wbx_temp)
-        print*, "六边形角度：", minval(angle_lbx_temp), maxval(angle_lbx_temp)
-        print*, "七边形角度：", minval(angle_qbx_temp), maxval(angle_qbx_temp)
-        print*, ""
+        write(io6, *)   "三角形边长：", minval(length_sjx_temp(2:num_sjx, :)), maxval(length_sjx_temp(2:num_sjx, :))
+        write(io6, *)   "三角形角度：", minval(angle_sjx_temp(2:num_sjx, :)), maxval(angle_sjx_temp(2:num_sjx, :))
+        write(io6, *)   "五边形角度：", minval(angle_wbx_temp), maxval(angle_wbx_temp)
+        write(io6, *)   "六边形角度：", minval(angle_lbx_temp), maxval(angle_lbx_temp)
+        write(io6, *)   "七边形角度：", minval(angle_qbx_temp), maxval(angle_qbx_temp)
+        write(io6, *)   ""
 
         deallocate(MoveDis, length_sjx_temp)
         deallocate(angle_sjx, angle_wbx, angle_lbx)
@@ -727,4 +728,4 @@ Module MOD_grid_preprocess
 
     END SUBROUTINE CheckCrossing
 
-END Module MOD_grid_preprocess
+END Module MOD_grid_preprocessing
