@@ -1,6 +1,6 @@
 MODULE MOD_GetRef
     ! 进行判断如果ref_sjx存在那里不在额外定义了
-    USE consts_coms, only: mesh_type, step, r8, nxp, file_dir, openmp, maxlc, num_vertex, num_mp_step
+    USE consts_coms, only: io6, mesh_type, step, r8, nxp, file_dir, openmp, maxlc, num_vertex, num_mp_step
     USE refine_vars 
     USE netcdf
     USE MOD_utilities, only: Contain_Read
@@ -28,17 +28,17 @@ MODULE MOD_GetRef
 
     contains
     ! IsInRfArea_sjx(i) == 1 : 对应的三角形， == -1 相反的三角形（如果1是陆地网格，-1就是海洋网格，反之） == 0 不存在的三角形（可能是不在指定区域内）
-    SUBROUTINE GetRef(step, exit_loop)
+    SUBROUTINE GetRef(iter, exit_loop)
 
         implicit none
-        integer, intent(in) :: step
+        integer, intent(in) :: iter
         logical, intent(inout), optional :: exit_loop ! use for exit refine
         integer :: i, sjx_points, numpatch, spDimID, twoDimID, DimID, ncid, varid(18)
         integer,  dimension(:, :), allocatable :: mp_id, mp_ii
         character(LEN = 5) :: nxpc, stepc
         character(LEN = 256) :: lndname
 
-        if (step /= 0) then
+        if (iter /= 0) then
             sjx_points = num_mp_step(step)
             write(io6, *)   "step = ", step, "num_mp_step(step) = ", num_mp_step(step)
             if (.not. allocated(ref_sjx)) then

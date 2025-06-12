@@ -1,5 +1,5 @@
 module MOD_GetContain
-    USE consts_coms, only : step, r8, mesh_type, mode_grid, nxp, refine, file_dir, openmp, nlons_source, nlats_source, lcs, num_mp_step, num_wp_step, num_vertex, num_center
+    USE consts_coms, only : io6, step, r8, mesh_type, mode_grid, nxp, refine, file_dir, openmp, nlons_source, nlats_source, lcs, num_mp_step, num_wp_step, num_vertex, num_center
     USE refine_vars, only : max_iter
     USE netcdf
     USE MOD_utilities, only : Mode4_Mesh_Read, Unstructured_Mesh_Read, Contain_Save

@@ -161,11 +161,22 @@ subroutine gridfile_write()
 
     ! Populate ngrwm: for each vertex (W point, index iw), list its surrounding cells (M points)
     ! A vertex can be shared by up to 7 cells in a hexagonal grid (less for boundaries/pentagons).
+    
     allocate (ngrwm(7, nwa)) ; ngrwm = 0
     !@RuiZhang: should 7 be replace by itab_w(iw)%ngr ?
+    ! itab_w(iw)%ngr may be 5 or 6 but we need 7
     do iw = 1, nwa
-       ngrwm(1:itab_w(iw)%ngr, iw) = itab_w(iw)%im(1:itab_w(iw)%ngr) ! Get surrounding cells for vertex 'iw'
+       ngrwm(1:7, iw) = itab_w(iw)%im(1:7) 
+       !ngrwm(1:itab_w(iw)%ngr, iw) = itab_w(iw)%im(1:itab_w(iw)%ngr) ! Get surrounding cells for vertex 'iw'
                                                                    ! itab_w(iw)%ngr is the actual number of neighbors
+    enddo
+
+    ! add by Rui Zhang 20250604
+    ! Populate n_ngrwm: the number of surrounding cells for each vertex
+    allocate(n_ngrwm(nwa)); n_ngrwm = 6
+    n_ngrwm(1) = 1
+    do iw = 2, nwa
+       if (ngrwm(6, iw) == 1) n_ngrwm(iw) = 5
     enddo
 
     ! Prepare coordinate arrays for saving
@@ -188,10 +199,10 @@ subroutine gridfile_write()
 
     ! Save the unstructured mesh data to NetCDF
     ! Initial file without any refinement (step usually 1 here)
-    CALL Unstructured_Mesh_Save(lndname, sjx_points, lbx_points, mp, wp, ngrmw, ngrwm)
+    CALL Unstructured_Mesh_Save(lndname, sjx_points, lbx_points, mp, wp, ngrmw, ngrwm, n_ngrwm)
 
     ! Deallocate temporary arrays
-    deallocate(ngrwm, ngrmw, mp, wp)
+    deallocate(mp, wp, ngrmw, ngrwm, n_ngrwm)
 
 END SUBROUTINE gridfile_write
 
