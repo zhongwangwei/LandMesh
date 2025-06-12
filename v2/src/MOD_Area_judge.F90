@@ -26,16 +26,28 @@ module MOD_Area_judge
     integer, allocatable, public :: seaorland(:, :)
     ! Mask indicating if a source grid cell is within the primary domain (1) or not (0).
     integer, allocatable, public :: IsInDmArea_grid(:, :)
+
+    ! @Zhongwang Wei 
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! Incomplete definition ! IsInRfArea_grid use for both specified refinement and calculated refinement. Please modify!
     ! Mask indicating if a source grid cell is within a specified refinement area (1) or not (0). Used for user-defined refinement regions.
     integer, allocatable, public :: IsInRfArea_grid(:, :)
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
     ! Mask indicating if a source grid cell is within a calculated refinement area (1) or not (0). Used for threshold-based refinement.
     integer, allocatable, public :: IsInRfArea_cal_grid(:, :)
     ! Number of selected longitudes and latitudes for the primary domain.
     integer, public :: nlons_Dm_select, nlats_Dm_select
     ! Min/max longitude/latitude indices (1-based) defining the bounding box of the primary domain within the source global grid.
     integer, public :: minlon_DmArea, maxlon_DmArea, maxlat_DmArea, minlat_DmArea
+
+    ! @Zhongwang Wei 
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! The same issue as IsInRfArea_grid
     ! Min/max longitude/latitude indices defining the bounding box of the specified refinement area.
     integer, public :: minlon_RfArea, maxlon_RfArea, maxlat_RfArea, minlat_RfArea
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
     ! Min/max longitude/latitude indices defining the bounding box of the calculated (threshold-based) refinement area.
     integer, public :: minlon_RfArea_cal, maxlon_RfArea_cal, maxlat_RfArea_cal, minlat_RfArea_cal
     ! Min/max longitude/latitude indices defining the bounding box of a patch area.
@@ -56,6 +68,7 @@ module MOD_Area_judge
         ! Validates that the refinement area is within the domain area.
         ! Reads necessary threshold datasets for land, ocean, or earth system variables.
         ! Saves `IsInRfArea_cal_grid` and its metadata.
+
     SUBROUTINE Area_judge()
         IMPLICIT NONE
         integer :: i, j, sum_land_grid, iter        ! Loop counters, sum of land grid cells, iteration variable (refinement degree).
@@ -64,6 +77,7 @@ module MOD_Area_judge
         character(16) :: type_select                ! String to select mask type ('mask_domain', 'mask_refine', 'mask_patch').
         character(LEN = 256) :: inputfile, outputfile ! File names for I/O.
 
+        ! mask_restart only use for adjust mask_sea_ratio value. the default value is 0.5
         if (.not. mask_restart) then
             write(io6, *) 'IsInArea_grid_Calculation start'
             allocate(IsInDmArea_grid(nlons_source, nlats_source)); IsInDmArea_grid = 0 ! Initialize domain mask to 0 (outside).
@@ -106,9 +120,15 @@ module MOD_Area_judge
                 end do
             end do
             !$OMP END PARALLEL DO
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I agree your point 
 	    !TODO: better to use count(seaorland == 1) here?
         !sum_land_grid = sum(seaorland)
-	    sum_land_grid = count(seaorland == 1) ! Count land grid cells.
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+	        sum_land_grid = count(seaorland == 1) ! Count land grid cells.
             write(io6, *)  "Number of land grid cells within the calculation domain: ",sum_land_grid
             nlons_Dm_select = maxlon_DmArea - minlon_DmArea + 1 ! Number of longitudes in selected domain.
             nlats_Dm_select = minlat_DmArea - maxlat_DmArea + 1 ! Number of latitudes in selected domain.
@@ -126,13 +146,25 @@ module MOD_Area_judge
             if (mask_restart) then ! If restarting, read previously saved domain and sea/land data.
                 allocate(seaorland(nlons_source, nlats_source)); seaorland = 0
                 allocate(IsInDmArea_grid(nlons_source, nlats_source)); IsInDmArea_grid = 0
+
+                ! @Zhongwang Wei 
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                ! RZ: Sorry! I do not understand your point
 		        !TODO: it is correct of inputfile, original code did not define it!
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
                 inputfile = trim(file_dir) // 'result/IsInDmArea_grid.nc4' ! Path to previously saved data.
                 CALL IsInArea_grid_Read(inputfile, IsInDmArea_select, seaorland_select)
                 seaorland(minlon_DmArea:maxlon_DmArea, maxlat_DmArea:minlat_DmArea) = seaorland_select(:,:)
                 IsInDmArea_grid(minlon_DmArea:maxlon_DmArea, maxlat_DmArea:minlat_DmArea) = IsInDmArea_select(:,:)
+                
+                ! @Zhongwang Wei 
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                ! RZ: I agree your point 
 		        !TODO: check deallocate of all variable
                 deallocate(IsInDmArea_select, seaorland_select)
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
             end if
             type_select = 'mask_patch'
             CALL mask_patch_modify(type_select, iter) ! iter is 0 if not in restart refine context.
@@ -162,7 +194,13 @@ module MOD_Area_judge
         maxlat_RfArea_cal = maxlat_RfArea
         minlat_RfArea_cal = minlat_RfArea
         write(io6, *)  ""
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I agree your point, use *_cal more accurate  
 	    !TODO:check here, i think it should be  *_cal, although the result will be the same
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         write(io6, *)  "refine_degree (for calculated mask) = ", iter
         write(io6, *)  "minlon_RfArea_cal = ", minlon_RfArea_cal
         write(io6, *)  "maxlon_RfArea_cal = ", maxlon_RfArea_cal
@@ -171,15 +209,26 @@ module MOD_Area_judge
         write(io6, *)  ""
         if (minlon_RfArea_cal > maxlon_RfArea_cal) stop "ERROR! minlon_RfArea_cal > maxlon_RfArea_cal"
         if (maxlat_RfArea_cal > minlat_RfArea_cal) stop "ERROR! maxlat_RfArea_cal > minlat_RfArea_cal" 
-        
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I think this loop is efficient with openmp parallel
         ! Efficiency of this check? 
 	    ! TODO: check here.
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         ! Ensure refinement area is within the domain area.
         !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC)&
         !$OMP PRIVATE(i, j)
         do j = maxlat_RfArea_cal, minlat_RfArea_cal, 1
             do i = minlon_RfArea_cal, maxlon_RfArea_cal, 1
+
+                ! @Zhongwang Wei 
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                ! RZ: I agree your point and accept the modification
 	            !I think IsInRfArea_cal_grid(i, j) == 1 is correct, do not use IsInRfArea_cal_grid(i, j) only, it will cause confusion
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
                 if (IsInRfArea_cal_grid(i, j)== 1) then
                     if (IsInDmArea_grid(i, j) == 0) then ! Ensure refined cells are within the domain.
                         write(io6, *)  "ERROR!!! the refine area exceed the domain area!!!"
@@ -208,8 +257,14 @@ module MOD_Area_judge
 
         write(io6, *)  "IsInRfArea_cal_grid save start"
         outputfile = trim(file_dir) // 'result/IsInRfArea_cal_grid.nc4'
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I agree your point and accept the modification
 	    !!! Here is also weird, I do believe it should be *_cal
 	    !TODO:CHECK HERE, I think it should be *_cal, otherwise it should remove the *_cal
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         CALL IsInArea_grid_Save(outputfile, IsInRfArea_cal_grid, minlon_RfArea_cal, maxlon_RfArea_cal, maxlat_RfArea_cal, minlat_RfArea_cal)
         write(io6, *)  "IsInRfArea_cal_grid save finish"
         write(io6, *)  ""
@@ -240,8 +295,14 @@ module MOD_Area_judge
         end if
 
         ! For specified refinement (iter > 0), calculate IsInRfArea_grid for this degree.
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I do not think IsInRfArea_grid need to deallocate but I accept your coding
         if (allocated(IsInRfArea_grid)) deallocate(IsInRfArea_grid)
         allocate(IsInRfArea_grid(nlons_source, nlats_source))
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         IsInRfArea_grid = 0
         minlon_RfArea = nlons_source; maxlon_RfArea = 1
         maxlat_RfArea = nlats_source; minlat_RfArea = 1
@@ -256,16 +317,38 @@ module MOD_Area_judge
         else if (mask_refine_spc_type == 'close') then
             CALL IsInArea_close_Calculation(type_select, iter, mask_refine_ndm(iter), IsInRfArea_grid)
         end if
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! New
+        write(io6, *)  "refine_degree (for specified mask) = ", iter
+        write(io6, *)  "minlon_RfArea_spc = ", minlon_RfArea
+        write(io6, *)  "maxlon_RfArea_spc = ", maxlon_RfArea
+        write(io6, *)  "maxlat_RfArea_spc = ", maxlat_RfArea
+        write(io6, *)  "minlat_RfArea_spc = ", minlat_RfArea
+        ! old
         write(io6, *)  "refine_degree = ", iter
         write(io6, *)  "minlon_RfArea (specified) = ", minlon_RfArea
         write(io6, *)  "maxlon_RfArea (specified) = ", maxlon_RfArea
         write(io6, *)  "maxlat_RfArea (specified) = ", maxlat_RfArea
         write(io6, *)  "minlat_RfArea (specified) = ", minlat_RfArea
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I think maxlon_RfArea /=1 minlat_RfArea /=1 is not necessary
         if (minlon_RfArea > maxlon_RfArea .AND. maxlon_RfArea /=1) stop "ERROR! minlon_RfArea > maxlon_RfArea" ! maxlon_RfArea=1 if no area found
         if (maxlat_RfArea > minlat_RfArea .AND. minlat_RfArea /=1) stop "ERROR! maxlat_RfArea > minlat_RfArea" ! minlat_RfArea=1 if no area found
-        
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         ! Check if refinement area is within domain.
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I think there have zero error or issue in this loop. Why you feel confusing
         ! THIS IS also confusing
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         if (maxlon_RfArea /=1 .AND. minlat_RfArea /=1) then ! Proceed only if a valid refinement area was found
             !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC)&
             !$OMP PRIVATE(i, j)
@@ -283,6 +366,7 @@ module MOD_Area_judge
         else
             write(io6, *)  "Warning: No specified refinement area found for iteration/degree: ", iter
         endif
+
         write(io6, *)  "the refine area Completely locate at the domain area!!!"
         write(io6, *)  "IsInRfArea_grid_spc save start"
         write(iterc, '(I2.2)') iter
@@ -292,6 +376,7 @@ module MOD_Area_judge
         write(io6, *)  ""
     END SUBROUTINE Area_judge_refine
 
+
     ! Modifies the `seaorland` mask based on patch data.
     ! Calculates `IsInPaArea_grid` based on `mask_patch_type` and then sets
     ! corresponding cells in `seaorland` to 0 (sea/water), effectively applying patches
@@ -299,6 +384,8 @@ module MOD_Area_judge
     ! type_select Input: Type of mask ('mask_patch').
     ! iter Input: Refinement degree/iteration (0 for base patches).
     ! Only needs to modify `seaorland`, not `IsInDmArea_grid`.
+
+    ! RZ: I remember this is a bug when call mask_patch_modify. I will check later
     SUBROUTINE mask_patch_modify(type_select, iter)
         
         IMPLICIT NONE
@@ -324,8 +411,14 @@ module MOD_Area_judge
 
         ! Modify seaorland mask.
         write(io6, *)  "Modifying seaorland mask with patch start!"
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I accept your modification
         !TODO: CHECK HERE
         if (maxlon_PaArea /=1 .AND. minlat_PaArea /=1) then ! Proceed only if a valid patch area was found
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
             !$OMP PARALLEL DO NUM_THREADS(openmp) SCHEDULE(DYNAMIC)&
             !$OMP PRIVATE(i, j)
             do j = maxlat_PaArea, minlat_PaArea, 1
@@ -644,10 +737,16 @@ module MOD_Area_judge
         write(refinec, '(I1)') iter
         do n = 1, ndm, 1 ! Loop through mask files.
             write(numc, '(I2.2)') n
+
+            ! @Zhongwang Wei 
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            ! RZ: I accept your modification. refinec should be used.
             !TODO:need to check here
             ! Filename construction seems to assume iter=0 for 'close' type, or refinec should be used.
             !lndname = trim(file_dir)// 'tmpfile/'//trim(type_select)//'_close_0_'//trim(numc)//'.nc4'
             lndname = trim(file_dir)// 'tmpfile/'//trim(type_select)//'_close_'//trim(refinec)//'_'//trim(numc)//'.nc4'
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
             write(io6, *)  trim(lndname)
             CALL close_Mesh_Read(lndname, close_num, close_points) ! Read polygon vertices.
             
@@ -702,13 +801,25 @@ module MOD_Area_judge
                     CALL ray_segment_intersect(point_i, lat1, lon1, lat2, lon2, lon_intersect)
 		            ! TODO: HERE is also need to check, I am not fully understand but I think it should be like this
 		            ! /= is not good
-                    if (lon_intersect > point_i(1) + 1.0e-6_r8) then ! If intersection found to the right of ray start.
+
+                    ! @Zhongwang Wei 
+                    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    ! RZ: I think my orial code is right!
+                    if (lon_intersect /= point_i(1)) then 
+                    ! if (lon_intersect > point_i(1) + 1.0e-6_r8) then ! If intersection found to the right of ray start.
+                    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                         !if (lon_intersect /= point_i(1)) then 
                         ray_segment_intersect_num(j - maxlat_source + 1) = ray_segment_intersect_num(j - maxlat_source + 1) + 1
+                        
+                        ! @Zhongwang Wei 
+                        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                        ! RZ: I think this judgment is not necessary
                         if (ray_segment_intersect_num(j - maxlat_source + 1) > size(ray_segment_intersect_lon,2)) then
                             write(io6, *)  "Error: Exceeded allocated size for ray_segment_intersect_lon"
                             stop
                         endif
+                        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
                         ray_segment_intersect_lon(j - maxlat_source + 1,   ray_segment_intersect_num(j - maxlat_source + 1)) = lon_intersect
                     end if
                 end do
@@ -777,8 +888,14 @@ module MOD_Area_judge
         ! If the segment is horizontal (lat1 == lat2), it cannot intersect a horizontal ray unless collinear.
         ! For simplicity in ray casting, horizontal segments are often ignored or handled by specific rules.
         ! Here, it's treated as no intersection for standard ray casting (returns ray's own longitude).
-	    ! do not use ==, Allow for slight numerical error
+	    
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I agree your point
+        ! do not use ==, Allow for slight numerical error
         if (abs(lat1 - lat2) < 1e-9_r8) then ! Use tolerance for float comparison
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
             lon_intersect = lon_p
             return
         end if
@@ -788,21 +905,36 @@ module MOD_Area_judge
             lon_intersect = lon_p
             return
         end if
-        
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I agree your point, but have some modification, Please check!
 	    ! TODO: CHECK here, potential bugs here in original code
         ! Calculate slope of the segment. If vertical, intersection lon is lon1.
         !NEED CHECK CAREFULLY!!!
         if (abs(lon2 - lon1) < 1e-9_r8) then
             lon_intersect = lon1
-        else
-            m = (lat2 - lat1) / (lon2 - lon1)          ! Slope.
-            if (abs(m) < 1e-9_r8) then                 ! Segment is horizontal (already checked, but as a safeguard for near-horizontal)
-                lon_intersect = lon_p
-                return
-            endif
-            lon_intersect = lon1 + (lat_p - lat1) / m  ! X-coordinate of intersection.
-        endif
-        
+            return
+        end if
+
+        ! make sure lon_intersectbetween -180 and 180
+        m = (lat2 - lat1) / (lon2 - lon1)          ! Slope.
+        lon_intersect = lon1 + (lat_p - lat1) / m  ! X-coordinate of intersection.
+        if (lon_intersect < -180.0_r8 .or. lon_intersect > 180.0_r8) lon_intersect = lon_p
+
+        ! else
+        !     m = (lat2 - lat1) / (lon2 - lon1)          ! Slope.
+        !     if (abs(m) < 1e-9_r8) then                 ! Segment is horizontal (already checked, but as a safeguard for near-horizontal)
+        !         lon_intersect = lon_p
+        !         return
+        !     endif
+        !     lon_intersect = lon1 + (lat_p - lat1) / m  ! X-coordinate of intersection.
+        ! endif
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ:The remaining content can be deleted
         ! Check if intersection point lies within the segment's longitude bounds.
         ! This is crucial. If not, it's not a valid intersection with the segment.
         if (.not. ((lon_intersect >= min(lon1,lon2) - 1e-6_r8) .and. (lon_intersect <= max(lon1,lon2) + 1e-6_r8))) then
@@ -812,6 +944,7 @@ module MOD_Area_judge
         if (lon_intersect < lon_p - 1e-6_r8) then       ! Allow for slight numerical error
             lon_intersect = lon_p
         endif
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     END SUBROUTINE ray_segment_intersect
 
@@ -874,8 +1007,14 @@ module MOD_Area_judge
         do i = 1, close_num - 2, 1       ! For each segment (i, i+1).
             do j = i + 2, close_num, 1   ! For each non-adjacent segment (j, j+1), excluding the segment itself and its immediate neighbor.
                                          ! The last segment is (close_num, 1) which is (close_num, close_num+1) due to cyclic copy.
+     
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I do not understand your thought
         !TODO: check here, if they share same vertex
 		if (j == close_num .and. i == 1) cycle ! Avoid checking segment (1,2) against (num,1) if they share vertex 1.
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
                 intersect = segments_intersect(lat(i), lon(i), lat(i+1), lon(i+1), &
                                         lat(j), lon(j), lat(j+1), lon(j+1))
                 if (intersect) then
@@ -997,9 +1136,23 @@ module MOD_Area_judge
 
         gridnum_perdegree = 120                               ! Default grid cells per degree (e.g., for 0.25 deg resolution, 4 cells/deg, but this seems different).
                                                               ! This variable seems related to an expected resolution to define search window.
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: igbp 86400*43200 usgs 43200*21600 tend to diff gridnum_perdegree 
         if (lcs == 'igbp') gridnum_perdegree = 240            ! Higher for IGBP?
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+        ! @Zhongwang Wei 
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! RZ: I think my orial code is good enough
         !TODO: check here whether the revision is correct or not
+        ! orial code
+        minsource = ( floor(temp)   - (-180)) * gridnum_perdegree
+        maxsource = ( ceiling(temp) - (-180)) * gridnum_perdegree
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
         if (trim(str1) == 'lon') then ! For longitude sequence. Longitude from -180 to 180.
+
             ! Estimate search range.
             minsource = int( ( temp - (-180.0_r8) ) * gridnum_perdegree ) ! This formula is problematic.
                                                                       ! Should be based on array index and value relationship.
@@ -1024,12 +1177,18 @@ module MOD_Area_judge
             if (maxsource <= size(seq_lonlat) .and. maxsource > 0) write(io6, *)  "seq_lonlat(maxsource) = ", seq_lonlat(maxsource)
             source = i ! Returns last index if not found.
         else ! For latitude sequence. Latitude from 90 to -90.
+            
+            ! @Zhongwang Wei 
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            ! RZ: I think my code is good enough
             !TODO:check here!
 	        ! which is correct???!! I ask the chatgpt, it said the second one is correct.
             minsource = ( 90 - ceiling(temp)) * gridnum_perdegree
             maxsource = ( 90 -   floor(temp)) * gridnum_perdegree
             !minsource = int( ( 90.0_r8 - temp ) * gridnum_perdegree )
             !maxsource = int( ( 90.0_r8 - temp ) * gridnum_perdegree ) + 2*gridnum_perdegree
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
             minsource = max(1,              minsource-10)
             maxsource = min(1+nlats_source, maxsource+10)
             do i = minsource, maxsource, 1

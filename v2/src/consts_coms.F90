@@ -100,7 +100,6 @@ Module consts_coms
     real(r8) :: Extr_sjx_GXR0(2) = 0.0_r8
     integer :: iunit = 10
     integer :: step = 1
-    !integer :: io6
     integer :: nxp
     integer :: GXR
     integer :: openmp

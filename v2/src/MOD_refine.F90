@@ -143,6 +143,7 @@ module MOD_refine
         ! allocate(ref_tr(sjx_points * 4, ref_colnum)); ref_tr = 0 ! ref_tr第二列的大小应该与ref_th的大小一致
         !!!!!!!!!!!!!!!!!!!!!!!!!! add by Rui Zhang !!!!!!!!!!!!!!!!!!!!!!!!
 
+        num_ref = INT(sum(ref_sjx))                  ! 需要细化的三角形个数
         if (step > 1 .or. any(n_ngrwm(2:lbx_points)<5)) then
             write(io6, *)   "根据相邻距离筛选七边形附近点 或者 虚假多多边形"
             set_dis = halo(step)
@@ -159,6 +160,15 @@ module MOD_refine
             write(io6, *)   "mp_dis calculate start"
             allocate(mp_dis(num_ref, sjx_points-num_vertex+1)); mp_dis = 9
             CALL GetTriangleDis(num_vertex, set_dis, num_ref, sjx_points, ngrmw, ngrwm, n_ngrwm, ref_select, mp_dis)
+            lndname = trim(file_dir) // "tmpfile/gridfile_NXP" // trim(nxpc)  // "_" // trim(stepc) // "_mp_dis.nc4"
+            write(io6, *)   lndname
+            CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncid))
+            CALL CHECK(NF90_DEF_DIM(ncID, "sjx_points", sjx_points-num_vertex+1, spDimID))
+            CALL CHECK(NF90_DEF_DIM(ncID, "num_ref", num_ref, numDimID))
+            CALL CHECK(NF90_DEF_VAR(ncID, "mp_dis", NF90_INT, (/ numDimID, spDimID /), ncVarID(1)))
+            CALL CHECK(NF90_ENDDEF(ncID))
+            CALL CHECK(NF90_PUT_VAR(ncID, ncvarid(1), mp_dis))
+            CALL CHECK(NF90_CLOSE(ncID))
             write(io6, *)   "mp_dis calculate finish"
 
             do ii = 1, num_ref, 1
@@ -177,7 +187,7 @@ module MOD_refine
                 end do
             end do
             num_ref = INT(sum(ref_sjx))                  ! 需要细化的三角形个数
-
+            deallocate(ref_select, mp_dis) 
 
             write(io6, *)   "去除孤立细化三角形前，需要细化的三角形:", num_ref
             do i = num_vertex + 1, sjx_points, 1
@@ -193,16 +203,6 @@ module MOD_refine
                 return
             end if
 
-            lndname = trim(file_dir) // "tmpfile/gridfile_NXP" // trim(nxpc)  // "_" // trim(stepc) // "_mp_dis.nc4"
-            write(io6, *)   lndname
-            CALL CHECK(NF90_CREATE(trim(lndname), ior(nf90_clobber, nf90_netcdf4), ncid))
-            CALL CHECK(NF90_DEF_DIM(ncID, "sjx_points", sjx_points-num_vertex+1, spDimID))
-            CALL CHECK(NF90_DEF_DIM(ncID, "num_ref", num_ref, numDimID))
-            CALL CHECK(NF90_DEF_VAR(ncID, "mp_dis", NF90_INT, (/ numDimID, spDimID /), ncVarID(1)))
-            CALL CHECK(NF90_ENDDEF(ncID))
-            CALL CHECK(NF90_PUT_VAR(ncID, ncvarid(1), mp_dis))
-            CALL CHECK(NF90_CLOSE(ncID))
-            deallocate(ref_select, mp_dis) 
         end if
 
         !--------------------------------------------------
